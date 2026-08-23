@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <title>节奏解析可视化工具</title>
+</head>
+
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: #000;
+    color: #fff;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+
+  button,
+  .file-label,
+  select {
+    background: rgba(77, 166, 255, 0.08);
+    border: 1px solid rgba(77, 166, 255, 0.75);
+    color: #bfdbfe;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(77, 166, 255, 0.2);
+    transition: all 0.18s;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button:hover,
+  .file-label:hover,
+  select:hover {
+    background: rgba(77, 166, 255, 0.17);
+    border-color: #4da6ff;
+    box-shadow: 0 0 16px rgba(77, 166, 255, 0.45);
+    color: #eff6ff;
+  }
+
+  button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .playback-row button,
+  .playback-row select {
+    background: rgba(52, 211, 153, 0.08);
+    border-color: rgba(52, 211, 153, 0.6);
+    color: #6ee7b7;
+  }
+
+  .playback-row button:hover,
+  .playback-row select:hover {
+    background: rgba(52, 211, 153, 0.16);
+    border-color: #34d399;
+    box-shadow: 0 0 14px rgba(52, 211, 153, 0.4);
+    color: #a7f3d0;
+  }
+
+  #resetBtn {
+    background: rgba(255, 24, 47, 0.08);
+    border-color: rgba(255, 24, 47, 0.8);
+    color: #ff8f9f;
+  }
+
+  #resetBtn:hover {
+    background: rgba(255, 24, 47, 0.16);
+    border-color: #ff182f;
+    box-shadow: 0 0 14px rgba(255, 24, 47, 0.45);
+    color: #ffc0c9;
+  }
+
+  #exportBtn {
+    background: rgba(251, 191, 36, 0.08);
+    border-color: rgba(251, 191, 36, 0.65);
+    color: #fde68a;
+  }
+
+  #exportBtn:hover {
+    background: rgba(251, 191, 36, 0.16);
+    border-color: #fbbf24;
+    box-shadow: 0 0 14px rgba(251, 191, 36, 0.4);
+    color: #fef3c7;
+  }
+
+  .playback-row button.active {
+    background: rgba(52, 211, 153, 0.22);
+    border-color: #34d399;
+    box-shadow: 0 0 16px rgba(52, 211, 153, 0.55);
+    color: #d1fae5;
+  }
+
+  body.show-chords .note.chord .shape {
+    border-color: #fbbf24;
+    border-width: 2.5px;
+    box-shadow: 0 0 8px rgba(251, 191, 36, 0.65);
+  }
+
+  .sub-row {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    flex-wrap: nowrap;
+  }
+
+  .audio-ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+
+  input[type=range] {
+    width: 120px;
+    accent-color: #4da6ff;
+  }
+
+  input[type=file] {
+    display: none;
+  }
+
+  select {
+    color-scheme: dark;
+  }
+
+  select option {
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+
+  .info-bar {
+    display: flex;
+    gap: 20px;
+    padding: 14px 32px;
+    background: rgba(0, 0, 0, 0.25);
+    flex-wrap: wrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .info-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .info-label {
+    font-size: 12px;
+    color: #9ca3af;
+  }
+
+  .info-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fbbf24;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .time-card .info-value {
+    color: #34d399;
+  }
+
+  .count-card .info-value {
+    color: #60a5fa;
+  }
+
+  .chart-area {
+    position: relative;
+    padding: 24px 0 0;
+    margin: 20px 32px;
+    border-radius: 8px;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 30px 0 12px 0;
+    z-index: 1;
+  }
+
+  .canvas-wrap::-webkit-scrollbar {
+    height: 10px;
+  }
+
+  .canvas-wrap::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 5px;
+  }
+
+  .canvas-wrap::-webkit-scrollbar-thumb {
+    background: #1038ff;
+    border-radius: 5px;
+    box-shadow: 0 0 6px rgba(16, 56, 255, 0.35);
+  }
+
+  .canvas-wrap::-webkit-scrollbar-thumb:hover {
+    background: #3a5fff;
+    box-shadow: 0 0 10px rgba(16, 56, 255, 0.6);
+  }
+
+  .timeline {
+    position: relative;
+    margin: 0 100px 0 260px;
+    min-width: 6000px;
+    height: 140px;
+  }
+
+  .timeline::before {
+    content: "";
+    position: absolute;
+    top: 70px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.15);
+    pointer-events: none;
+    transform: translateY(-1px);
+  }
+
+  .bpm-panel {
+    position: absolute;
+    left: 24px;
+    top: 54px;
+    width: 130px;
+    height: 140px;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 80;
+  }
+
+  .bpm-panel .bpm-label {
+    font-size: 14px;
+    letter-spacing: 3px;
+    color: #fff;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .bpm-panel .bpm-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .play-head {
+    position: absolute;
+    top: 54px;
+    left: 166px;
+    width: 56px;
+    height: 140px;
+    z-index: 90;
+    pointer-events: none;
+  }
+
+  .play-head::before {
+    display: none;
+  }
+
+  .play-head::after {
+    content: "";
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 2.5px solid #fff;
+    background: transparent;
+  }
+
+  .bar-line {
+    position: absolute;
+    top: 32px;
+    bottom: 32px;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .bar-line.heavy {
+    width: 1px;
+    background: rgba(255, 255, 255, 0.5);
+  }
+
+  .bar-line.beat {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .bar-label {
+    position: absolute;
+    top: 0;
+    height: 28px;
+    line-height: 28px;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sub-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .bpm-line {
+    position: absolute;
+    top: 32px;
+    bottom: 32px;
+    width: 0;
+    border-left: 2px dashed rgba(77, 224, 255, 0.9);
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  .bpm-line .bpm-tag {
+    position: absolute;
+    top: 90px;
+    left: 0;
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: 800;
+    color: #4de0ff;
+    white-space: nowrap;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @keyframes bpmValueFlash {
+    0% {
+      text-shadow: 0 0 6px #fff, 0 0 14px rgba(255, 255, 255, 0.8);
+      transform: scale(1.06);
+    }
+
+    100% {
+      text-shadow: 0 0 0 rgba(255, 255, 255, 0);
+      transform: scale(1);
+    }
+  }
+
+  @keyframes bpmTextFlash {
+    0% {
+      text-shadow: 0 0 6px #fff, 0 0 14px rgba(255, 255, 255, 0.8);
+    }
+
+    100% {
+      text-shadow: 0 0 0 rgba(255, 255, 255, 0);
+    }
+  }
+
+  .bpm-panel.flash .bpm-label {
+    animation: bpmTextFlash 0.3s ease-out;
+  }
+
+  .bpm-panel.flash .bpm-value {
+    animation: bpmValueFlash 0.3s cubic-bezier(0.22, 1.2, 0.36, 1);
+    transform-origin: center;
+  }
+
+  .note {
+    position: absolute;
+    top: 70px;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: opacity 0.05s ease-out;
+  }
+
+  .note.passed {
+    opacity: 0;
+  }
+
+  .note .shape {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    position: relative;
+  }
+
+  .note.circle .shape {
+    border-radius: 50%;
+  }
+
+  .note.diamond .shape {
+    border-radius: 0;
+    transform: rotate(45deg);
+  }
+
+  .note.diamond .shape .num {
+    transform: rotate(-45deg);
+  }
+
+  .note .num {
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    z-index: 2;
+  }
+
+  .value-label {
+    position: absolute;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+
+  .std-4 .shape {
+    background: #1038ff;
+  }
+
+  .std-8 .shape {
+    background: #ff182f;
+  }
+
+  .std-16 .shape {
+    background: #4da6ff;
+  }
+
+  .std-32 .shape {
+    background: #4de0ff;
+  }
+
+  .std-value {
+    color: #93c5fd;
+  }
+
+  .dot-4 .shape {
+    background: #1038ff;
+  }
+
+  .dot-8 .shape {
+    background: #ff182f;
+  }
+
+  .dot-16 .shape {
+    background: #4da6ff;
+  }
+
+  .dot-value {
+    color: #fca5a5;
+  }
+
+  .note.diamond .num {
+    font-size: 16px;
+    font-weight: 900;
+    line-height: 1;
+    transform: rotate(-45deg);
+  }
+
+  .trip-6 .shape {
+    background: #22d27e;
+  }
+
+  .trip-12 .shape {
+    background: #ffa94d;
+  }
+
+  .trip-24 .shape {
+    background: #9aff6e;
+  }
+
+  .trip-value {
+    color: #86efac;
+  }
+
+  .quin-5 .shape {
+    background: #8b4dd2;
+  }
+
+  .quin-10 .shape {
+    background: #c266ff;
+  }
+
+  .quin-20 .shape {
+    background: #ff6dd1;
+  }
+
+  .quin-value {
+    color: #e9d5ff;
+  }
+
+  .sept-7 .shape {
+    background: #7c6bff;
+  }
+
+  .sept-14 .shape {
+    background: #b59cff;
+  }
+
+  .sept-value {
+    color: #c7d2fe;
+  }
+
+  .nine-9 .shape {
+    background: #1fbfb0;
+  }
+
+  .nine-18 .shape {
+    background: #34d399;
+  }
+
+  .nine-value {
+    color: #6ee7b7;
+  }
+
+  .toolbar-area {
+    margin: 0 32px 16px;
+    padding: 14px 20px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+  }
+
+  .legend {
+    width: fit-content;
+    margin: 0;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .panel-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: stretch;
+    margin: 20px 32px 40px;
+  }
+
+  .info-panel {
+    max-width: 400px;
+  }
+
+  .info-panel .info-item {
+    font-size: 13px;
+    color: #cbd5e1;
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
+
+  .info-panel .info-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .info-panel .info-item b {
+    color: #fbbf24;
+    margin-right: 0.2rem;
+    font-weight: 700;
+  }
+
+  .info-panel  a {
+    color: #fbbf24;
+    text-decoration: none;
+  }
+
+  .info-panel  a:hover,
+  .info-panel  a:active {
+    color: #ff182f;
+  }
+
+  .legend h3 {
+    margin-bottom: 16px;
+    font-size: 16px;
+    color: #c7d2fe;
+  }
+
+  .legend-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 36px;
+  }
+
+  .legend-group h4 {
+    font-size: 14px;
+    margin-bottom: 10px;
+    color: #fbbf24;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+
+  .legend .note {
+    position: static;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    transition: none;
+  }
+
+  .shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+
+  .shortcuts .sc-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fbbf24;
+  }
+
+  .sc-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-bottom-width: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.4;
+  }
+
+  .empty-state {
+    height: 162px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #94a3b8;
+    padding: 0 20px;
+  }
+</style>
+
+<body>
+
+  <div class="info-bar">
+    <div class="info-card time-card">
+      <div>
+        <div class="info-label">时间</div>
+        <div class="info-value" id="timeVal">00:00.000 / 00:00.000</div>
+      </div>
+    </div>
+    <div class="info-card count-card">
+      <div>
+        <div class="info-label">当前拍</div>
+        <div class="info-value" id="beatVal">0.00</div>
+      </div>
+    </div>
+    <div class="info-card count-card">
+      <div>
+        <div class="info-label">note数</div>
+        <div class="info-value" id="noteCount">0</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-area">
+    <div class="bpm-panel" id="bpmPanel">
+      <div class="bpm-label">BPM</div>
+      <div class="bpm-value" id="bpmLarge">--</div>
+    </div>
+    <div class="play-head" id="playHead"></div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div id="emptyState" class="empty-state">
+        <div style="font-size:20px;">请加载谱面文件</div>
+      </div>
+      <div class="timeline" id="timeline" style="display:none;">
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar-area">
+    <div class="toolbar playback-row">
+      <button id="playBtn" disabled>播放</button>
+      <button id="pauseBtn" disabled>暂停</button>
+      <button id="resetBtn" disabled>重置</button>
+      <select id="speedSel" title="播放速度倍率">
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1.0x (实际)</option>
+        <option value="1.5">1.5x</option>
+        <option value="2">2.0x</option>
+        <option value="4">4.0x</option>
+      </select>
+      <button id="chordBtn">显示多押</button>
+      <button id="exportBtn" disabled title="逐帧渲染导出为 mp4">导出</button>
+    </div>
+    <div class="toolbar sub-row">
+      <label class="file-label" id="fileLabel" title="右键点击取消载入">加载谱面
+        <input type="file" id="fileInput" accept=".json,.mc,.osu">
+      </label>
+      <label class="file-label" id="songLabel" title="右键点击取消载入">加载音乐
+        <input type="file" id="songInput" accept="audio/*">
+      </label>
+      <label class="file-label" id="hitLabel" title="右键点击取消载入">加载打击音
+        <input type="file" id="hitInput" accept="audio/*">
+      </label>
+      <span class="audio-ctl">音乐音量
+        <input type="range" id="songVol" min="0" max="100" value="100" title="曲子音量">
+      </span>
+      <button id="demoBtn">载入示例</button>
+    </div>
+  </div>
+
+  <div class="panel-row">
+    <div class="legend">
+      <h3>音符图例</h3>
+      <div class="legend-grid">
+        <div class="legend-group">
+          <h4>标准组</h4>
+          <div class="legend-item"><span class="note circle std-4"><span class="shape"></span></span>4 分</div>
+          <div class="legend-item"><span class="note circle std-8"><span class="shape"></span></span>8 分</div>
+          <div class="legend-item"><span class="note circle std-16"><span class="shape"></span></span>16 分</div>
+          <div class="legend-item"><span class="note circle std-32"><span class="shape"></span></span>32 分</div>
+        </div>
+        <div class="legend-group">
+          <h4>附点组</h4>
+          <div class="legend-item"><span class="note diamond dot-4"><span class="shape"><span
+                  class="num">·</span></span></span>附点 4 分</div>
+          <div class="legend-item"><span class="note diamond dot-8"><span class="shape"><span
+                  class="num">·</span></span></span>附点 8 分</div>
+          <div class="legend-item"><span class="note diamond dot-16"><span class="shape"><span
+                  class="num">·</span></span></span>附点 16 分</div>
+        </div>
+        <div class="legend-group">
+          <h4>三连音组</h4>
+          <div class="legend-item"><span class="note circle trip-6"><span class="shape"><span
+                  class="num">3</span></span></span>6 分</div>
+          <div class="legend-item"><span class="note circle trip-12"><span class="shape"><span
+                  class="num">3</span></span></span>12 分</div>
+          <div class="legend-item"><span class="note circle trip-24"><span class="shape"><span
+                  class="num">3</span></span></span>24 分</div>
+        </div>
+        <div class="legend-group">
+          <h4>五连音组</h4>
+          <div class="legend-item"><span class="note circle quin-5"><span class="shape"><span
+                  class="num">5</span></span></span>5 分</div>
+          <div class="legend-item"><span class="note circle quin-10"><span class="shape"><span
+                  class="num">5</span></span></span>10 分</div>
+          <div class="legend-item"><span class="note circle quin-20"><span class="shape"><span
+                  class="num">5</span></span></span>20 分</div>
+        </div>
+        <div class="legend-group">
+          <h4>七 / 九连音组</h4>
+          <div class="legend-item"><span class="note circle sept-7"><span class="shape"><span
+                  class="num">7</span></span></span>7 分</div>
+          <div class="legend-item"><span class="note circle sept-14"><span class="shape"><span
+                  class="num">7</span></span></span>14 分</div>
+          <div class="legend-item"><span class="note circle nine-9"><span class="shape"><span
+                  class="num">9</span></span></span>9 分</div>
+          <div class="legend-item"><span class="note circle nine-18"><span class="shape"><span
+                  class="num">9</span></span></span>18 分</div>
+        </div>
+      </div>
+      <div class="shortcuts">
+        <span class="sc-title">快捷键</span>
+        <span class="sc-item"><kbd>空格</kbd>播放 / 暂停</span>
+        <span class="sc-item"><kbd>R</kbd>重置到开头</span>
+        <span class="sc-item">拖动时间轴定位播放头（播放从该处继续）</span>
+      </div>
+    </div>
+    <div class="legend info-panel">
+      <h3><a href="https://github.com/REDDRAGON-HL/Rhythm-Analyzer" target="_blank">说明</a></h3>
+      <p class="info-item"><b>note数</b>显示 去多押后note数 / 原始 note 数<br><b>载入</b>右键对应按钮可以退载<br><b>音乐</b>多次播放暂停后可能有点延迟
+        在修了在修了<br><b>导出</b>使用当前的倍速、多押显示、音量设置 逐帧渲染导出</p>
+      <p class="info-item"><b>支持的谱面格式:</b>malody key、osu! mania(可能不稳定)</p>
+      <p class="info-item"><a href="https://github.com/REDDRAGON-HL/Rhythm-Analyzer"
+          target="_blank"><b>github仓库:</b>REDDRAGON-HL/Rhythm-Analyzer</a></p>
+      <p class="info-item">
+        如果您喜欢本项目可以给仓库点个star谢谢咕<br>欢迎来提<b>建议</b>或者动手<b>修改</b>和增加谱面格式<b>支持</b>！<br>如果您使用本项目制作了视频可以在简介<b><a
+            href="https://space.bilibili.com/522436459" target="_blank">@X红龙X</a></b>，这会让我非常高兴咕！</p>
+    </div>
+  </div>
+
+</body>
+
+<script src="chart-core.js"></script>
+<script src="malody-mc.js"></script>
+<script src="osu-mania.js"></script>
+<script>
+  let state = {
+    chart: null,
+    pixelsPerBeat: 120,
+    playing: false,
+    curSec: 0,          // 当前播放位置
+    playFromSec: 0,     // 本次"按下播放"时的起点
+    wallStartPerf: 0,   // 本次按下播放的 performance.now()
+    speed: 1,
+    rafId: null,
+    playBeat: 0,        // 当前播放头所在的拍号
+    lastShownBpm: null, // 上次显示的 BPM
+    exporting: false,   // 是否正在导出视频
+    showChords: false   // 显示多押开关
+  }
+
+  const $ = id => document.getElementById(id)
+
+  let songAudio = null  // 载入的曲子
+  let songVolume = 1    // 曲子音量
+  let hitPool = []      // 打击音节点池，8 个轮询复用，密集音符也能连续触发
+  let hitPoolIdx = 0
+
+  let songKicked = true
+
+  // 曲子从谱面时间 fromSec 处起播offset
+  function startSong(fromSec) {
+    if (!songAudio) return
+    const t = fromSec + (state.chart ? (state.chart.bgmOffsetSec || 0) : 0)
+    if (t < 0 && state.chart && state.chart.musicDelayedEntry) {
+      songKicked = false
+      return
+    }
+    songKicked = true
+    try { songAudio.currentTime = Math.max(0, t); } catch (err) { }
+    songAudio.playbackRate = state.speed
+    songAudio.play().catch(() => { })
+  }
+
+  function stopSong() {
+    if (songAudio) songAudio.pause()
+  }
+
+  function playHit() {
+    if (!hitPool.length) return
+    const a = hitPool[hitPoolIdx++ % hitPool.length]
+    try { a.currentTime = 0; } catch (err) { }
+    a.play().catch(() => { })
+  }
+
+  // 音量滑条
+  $("songVol").addEventListener("input", function (e) {
+    songVolume = parseFloat(e.target.value) / 100
+    if (songAudio) songAudio.volume = songVolume
+  })
+
+  $("songInput").addEventListener("change", function (e) {
+    const f = e.target.files[0]
+    e.target.value = ""
+    if (!f) return
+    stopSong()
+    if (songAudio) URL.revokeObjectURL(songAudio.src)
+    songAudio = new Audio(URL.createObjectURL(f))
+    songAudio.preload = "auto"
+    songAudio.volume = songVolume
+    $("songLabel").firstChild.textContent = f.name + " "
+  })
+
+  $("hitInput").addEventListener("change", function (e) {
+    const f = e.target.files[0]
+    e.target.value = ""
+    if (!f) return
+    const url = URL.createObjectURL(f)
+    hitPool = []
+    for (let i = 0; i < 8; i++) {
+      const a = new Audio(url)
+      a.preload = "auto"
+      hitPool.push(a)
+    }
+    hitPoolIdx = 0
+    $("hitLabel").firstChild.textContent = f.name + " "
+  })
+
+  //右键取消载入
+  function unloadChart() {
+    if (state.exporting) return
+    state.playing = false
+    stopSong()
+    cancelAnimationFrame(state.rafId)
+    state.chart = null
+    state.curSec = 0
+    state.playFromSec = 0
+    state.wallStartPerf = 0
+    const timeline = $("timeline")
+    timeline.innerHTML = ""
+    timeline.style.display = "none"
+    $("emptyState").style.display = ""
+    $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(0)
+    $("beatVal").textContent = "0.00"
+    $("noteCount").textContent = "0"
+    $("playBtn").disabled = true
+    $("pauseBtn").disabled = true
+    $("resetBtn").disabled = true
+    $("chordBtn").disabled = true
+    $("exportBtn").disabled = true
+    $("fileLabel").firstChild.textContent = "加载谱面 "
+  }
+
+  $("fileLabel").addEventListener("contextmenu", function (e) {
+    e.preventDefault()
+    unloadChart()
+  })
+
+  $("songLabel").addEventListener("contextmenu", function (e) {
+    e.preventDefault()
+    if (songAudio) {
+      stopSong()
+      URL.revokeObjectURL(songAudio.src)
+      songAudio = null
+    }
+    $("songLabel").firstChild.textContent = "加载音乐 "
+  })
+
+  $("hitLabel").addEventListener("contextmenu", function (e) {
+    e.preventDefault()
+    hitPool = []
+    hitPoolIdx = 0
+    $("hitLabel").firstChild.textContent = "加载打击音 "
+  })
+
+  function renderTimeline() {
+    const chart = state.chart
+    if (!chart) return
+    const timeline = $("timeline")
+    timeline.innerHTML = ''
+    timeline.style.display = "block"
+    $("emptyState").style.display = "none"
+
+    const ppb = state.pixelsPerBeat
+    const minBeat = 0
+    const playEndBeat = chart.playEndBeat
+    const maxBeat = Math.ceil(playEndBeat) + 8  // 额外8拍留白确保 scrollLeft 有足够空间
+    const widthPx = Math.max(6000, (maxBeat - minBeat) * ppb + 800)
+    timeline.style.minWidth = widthPx + "px"
+
+    // 小节线
+    const beatsPerBar = 4
+    const firstBar = Math.floor(minBeat / beatsPerBar)
+    const lastBar = Math.ceil(maxBeat / beatsPerBar)
+
+    // 画拍线
+    for (let beat = Math.ceil(minBeat); beat <= maxBeat; beat++) {
+      const isBar = (beat % beatsPerBar === 0)
+      if (isBar) continue
+      const x = (beat - minBeat) * ppb
+      const bl = document.createElement("div")
+      bl.className = "bar-line beat"
+      bl.style.left = x + "px"
+      timeline.appendChild(bl)
+    }
+
+    // 画小节线
+    for (let b = firstBar; b <= lastBar; b++) {
+      const barBeat = b * beatsPerBar
+      if (barBeat < minBeat - 0.01 || barBeat > maxBeat + 0.01) continue
+      const x = (barBeat - minBeat) * ppb
+      const isHeavy = (b % 2 === 0)
+      const line = document.createElement("div")
+      line.className = "bar-line" + (isHeavy ? " heavy" : "")
+      line.style.left = x + "px"
+      timeline.appendChild(line)
+      // 拍号编号
+      const lbl = document.createElement("div")
+      lbl.className = "bar-label"
+      lbl.style.left = x + "px"
+      lbl.textContent = b
+      timeline.appendChild(lbl)
+    }
+
+    // 画细分线
+    for (let beat = minBeat; beat <= maxBeat; beat += 0.25) {
+      if (Math.abs(beat - Math.round(beat)) < 0.0001) continue
+      const x = (beat - minBeat) * ppb
+      const sl = document.createElement("div")
+      sl.className = "sub-line"
+      sl.style.left = x + "px"
+      timeline.appendChild(sl)
+    }
+
+    // 变速标记线
+    chart.bpmSegments.forEach(function (s, i) {
+      if (i === 0) return
+      const x = (s.startBeat - minBeat) * ppb
+      const bl = document.createElement("div")
+      bl.className = "bpm-line"
+      bl.style.left = x + "px"
+      const tag = document.createElement("div")
+      tag.className = "bpm-tag"
+      tag.textContent = Math.round(s.bpm)
+      bl.appendChild(tag)
+      timeline.appendChild(bl)
+    })
+
+    for (let i = 0; i < chart.notes.length; i++) {
+      const nt = chart.notes[i]
+      const x = (nt.beatVal - minBeat) * ppb
+      const el = document.createElement("div")
+      const shapeCls = nt.actualValueInfo.dotted ? "diamond" : "circle"
+      // 多押挂chord类
+      el.className = `note ${shapeCls} ${nt.colorInfo.cls}` + (nt.chordCount >= 2 ? " chord" : "")
+      el.style.left = x + "px"
+      el.dataset.beat = nt.beatVal
+      el.dataset.chord = nt.chordCount
+      const shapeInner = document.createElement("div")
+      shapeInner.className = "shape"
+      //  附点 只显示 ·，不跟随染色组
+      //  非附点 用 colorInfo.num，须排除附点组
+      let displayNum = null
+      if (nt.actualValueInfo.dotted) {
+        displayNum = "·"
+      } else if (nt.colorInfo.num && !nt.colorInfo.dotted) {
+        displayNum = nt.colorInfo.num
+      }
+      if (displayNum) {
+        const numSpan = document.createElement("span")
+        numSpan.className = "num"
+        numSpan.textContent = displayNum
+        shapeInner.appendChild(numSpan)
+      }
+      el.appendChild(shapeInner)
+      // 大于4拍不标时值，用beatCount = 4/v判断
+      const beatCount = 4 / nt.actualValueInfo.v
+      const needsLabel = (beatCount <= 4)
+      if (needsLabel) {
+        const vlbl = document.createElement("div")
+        const displayValueClass = (beatCount > 1) ? "std-value" : nt.actualValueInfo.valueClass
+        vlbl.className = `value-label ${displayValueClass}`
+        vlbl.textContent = nt.beatLabel || nt.actualValueInfo.label
+        el.appendChild(vlbl)
+      }
+      timeline.appendChild(el)
+    }
+
+    timeline._minBeat = minBeat
+    timeline._noteEls = Array.from(timeline.querySelectorAll(".note"))
+    timeline._hiddenIdx = 0
+
+    state.lastShownBpm = Math.round(chart.bpmFirst)
+    $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(chart.totalSeconds)
+    $("noteCount").textContent = chart.notes.length === chart.rawTapCount
+      ? String(chart.notes.length)
+      : chart.notes.length + " / " + chart.rawTapCount
+
+    $("playBtn").disabled = false
+    $("pauseBtn").disabled = true
+    $("resetBtn").disabled = false
+    $("chordBtn").disabled = false
+    $("exportBtn").disabled = false
+  }
+
+
+  function fmtTime(s) {
+    s = Math.max(0, s)
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    const ms = Math.floor((s - Math.floor(s)) * 1000)
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms).padStart(3, "0")}`
+  }
+
+  // 当前拍所在的 BPM
+  function bpmAt(beat) {
+    const chart = state.chart
+    if (!chart) return 0
+    const EPS = 1e-6
+    let curBpm = chart.bpmFirst
+    for (const s of chart.bpmSegments) {
+      // 边界判定 beat + EPS >= s.startBeat
+      // 上界 isFinite(endBeat) 时 beat < endBeat - EPS
+      const upperOk = !isFinite(s.endBeat) ? true : (beat < s.endBeat - EPS)
+      if (beat + EPS >= s.startBeat && upperOk) {
+        curBpm = s.bpm
+        break
+      }
+    }
+    return curBpm
+  }
+
+  function updatePlayhead(currentSec, autoScroll = true) {
+    const chart = state.chart
+    if (!chart) return
+    const timeline = $("timeline")
+    const minBeat = timeline._minBeat
+    const ppb = state.pixelsPerBeat
+
+    // 用 BPM 反查当前拍
+    const beat = secondToBeat(currentSec, chart.bpmSegments)
+    state.curSec = currentSec  // 同步 curSec，保证状态与播放头一致
+    $("timeVal").textContent = fmtTime(currentSec) + " / " + fmtTime(chart.totalSeconds)
+    $("beatVal").textContent = beat.toFixed(2)
+    state.playBeat = beat
+
+    const roundedBpm = Math.round(bpmAt(beat))
+    if (roundedBpm !== state.lastShownBpm) {
+      state.lastShownBpm = roundedBpm
+      const panel = $("bpmPanel")
+      panel.classList.remove("flash")
+      void panel.offsetWidth
+      panel.classList.add("flash")
+    }
+    $("bpmLarge").textContent = roundedBpm
+
+    if (autoScroll) {
+      const wrap = $("canvasWrap")
+      // 用真实 DOM 位置计算判定圆中心，避免硬编码偏移导致BPM切换视觉上滞后
+      const timelineMarginLeft = parseFloat(getComputedStyle(timeline).marginLeft) || 260
+      const wrapRect = wrap.getBoundingClientRect()
+      const headRect = $("playHead").getBoundingClientRect()
+      const judgeCenterInWrap = (headRect.left + headRect.width / 2) - wrapRect.left
+      const targetScrollLeft = (timelineMarginLeft - judgeCenterInWrap) + (beat - minBeat) * ppb
+      wrap.scrollLeft = Math.max(0, targetScrollLeft)
+    }
+
+    const noteEls = timeline._noteEls
+    if (noteEls) {
+      let idx = timeline._hiddenIdx || 0
+      while (idx < noteEls.length) {
+        const nb = parseFloat(noteEls[idx].dataset.beat)
+        if (nb <= beat) {
+          noteEls[idx].classList.add("passed")
+          if (state.playing && hitPool.length) {
+            const chord = parseInt(noteEls[idx].dataset.chord, 10) || 1
+            for (let k = 0; k < chord; k++) playHit()
+          }
+          idx++
+        } else {
+          break
+        }
+      }
+      timeline._hiddenIdx = idx
+    }
+  }
+
+  function tick() {
+    if (!state.playing) return
+    const elapsed = (performance.now() - state.wallStartPerf) / 1000 * state.speed
+    const curSec = state.playFromSec + elapsed
+    state.curSec = curSec
+    if (songAudio && !songKicked) startSong(curSec)
+    if (curSec >= state.chart.playEndSeconds) {
+      updatePlayhead(state.chart.playEndSeconds, true)
+      stopSong()
+      state.curSec = state.chart.totalSeconds
+      state.playing = false
+      $("playBtn").disabled = false
+      $("pauseBtn").disabled = true
+      return
+    }
+    updatePlayhead(curSec, true)
+    state.rafId = requestAnimationFrame(tick)
+  }
+
+  function play() {
+    if (!state.chart || state.playing) return
+    state.playFromSec = state.curSec
+    state.wallStartPerf = performance.now()
+    state.playing = true
+    startSong(state.playFromSec)
+    $("playBtn").disabled = true
+    $("pauseBtn").disabled = false
+    tick()
+  }
+
+  function pause() {
+    if (!state.playing) return
+    state.playing = false
+    stopSong()
+    const elapsed = (performance.now() - state.wallStartPerf) / 1000 * state.speed
+    state.curSec = state.playFromSec + elapsed // 记录暂停位置
+    cancelAnimationFrame(state.rafId)
+    $("playBtn").disabled = false
+    $("pauseBtn").disabled = true
+  }
+
+  function reset() {
+    state.playing = false
+    stopSong()
+    cancelAnimationFrame(state.rafId)
+    state.curSec = 0
+    state.playFromSec = 0
+    state.wallStartPerf = 0
+    // 恢复所有note可见性
+    const timeline = $("timeline")
+    if (timeline._noteEls) {
+      timeline._noteEls.forEach(el => el.classList.remove("passed"))
+      timeline._hiddenIdx = 0
+    }
+    updatePlayhead(0, true)
+    $("playBtn").disabled = !state.chart ? true : false
+    $("pauseBtn").disabled = true
+  }
+
+  //导出，逐帧渲染播放区，VideoFrame发给export-worker.js封装视频，音频经OfflineAudioContext
+  const EXPORT_SCALE = 2    // 2倍分辨率
+  const EXPORT_FPS = 60     // 视频帧率
+  const EXPORT_SR = 48000   // 音频采样率
+  // 填充色
+  const EXPORT_COLORS = {
+    "std-4": "#1038ff", "std-8": "#ff182f", "std-16": "#4da6ff", "std-32": "#4de0ff",
+    "dot-4": "#1038ff", "dot-8": "#ff182f", "dot-16": "#4da6ff",
+    "trip-3": "#22d27e", "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e",
+    "quin-5": "#8b4dd2", "quin-10": "#c266ff", "quin-20": "#ff6dd1",
+    "sept-7": "#7c6bff", "sept-14": "#b59cff",
+    "nine-9": "#1fbfb0", "nine-18": "#34d399"
+  }
+  // 时值色
+  const EXPORT_VALUE_COLORS = {
+    "std-value": "#93c5fd", "dot-value": "#fca5a5", "trip-value": "#86efac",
+    "quin-value": "#e9d5ff", "sept-value": "#c7d2fe", "nine-value": "#6ee7b7"
+  }
+
+  let exportCanvas = null, exportCtx = null, exportW = 0, exportH = 0
+  let exportWorker = null
+  let exportCancelFlag = false
+  let exportPendingAcks = 0
+
+  // 取消导出
+  function cancelExport() {
+    if (!state.exporting) return
+    exportCancelFlag = true
+    $("exportBtn").textContent = "正在取消…"
+  }
+
+  // worker消息分发
+  const exportWaiters = {}
+  function exportAwait(type) {
+    return new Promise(function (resolve, reject) {
+      (exportWaiters[type] = exportWaiters[type] || []).push({ resolve, reject })
+    })
+  }
+  // 出错时让所有等待中的步骤直接失败
+  function rejectExportWaiters(err) {
+    for (const k of Object.keys(exportWaiters)) {
+      const list = exportWaiters[k]
+      exportWaiters[k] = []
+      for (const w of list) w.reject(err)
+    }
+  }
+  function attachExportWorker(onError) {
+    exportWorker.onmessage = function (e) {
+      const d = e.data
+      if (d.type === "ack") {
+        exportPendingAcks = Math.max(0, exportPendingAcks - 1)
+      } else if (d.type === "warn") {
+        console.warn("导出:", d.message)
+      } else if (d.type === "error") {
+        const err = new Error(d.message)
+        onError(err)
+        rejectExportWaiters(err)
+      } else if (exportWaiters[d.type] && exportWaiters[d.type].length) {
+        exportWaiters[d.type].shift().resolve(d)
+      }
+    }
+    exportWorker.onerror = function (e) {
+      const err = new Error(e.message || "worker 加载失败")
+      onError(err)
+      rejectExportWaiters(err)
+    }
+  }
+  // 背压，当在途消息太多时等worker消化
+  function awaitExportAcks() {
+    return new Promise(function (resolve) {
+      const check = () => (exportPendingAcks <= 4 ? resolve() : setTimeout(check, 4))
+      check()
+    })
+  }
+
+  // 解码音频为AudioBuffer，重采样到EXPORT_SR
+  async function decodeExportAudio(url) {
+    const resp = await fetch(url)
+    const buf = await resp.arrayBuffer()
+    const ctx = new OfflineAudioContext(2, 1, EXPORT_SR)
+    return await ctx.decodeAudioData(buf)
+  }
+
+  // 合成整段音频
+  async function mixExportAudio(outputDur) {
+    const chart = state.chart
+    const speed = state.speed
+    const ctx = new OfflineAudioContext(2, Math.ceil((outputDur + 0.3) * EXPORT_SR), EXPORT_SR)
+
+    let haveAny = false
+    if (songAudio) {
+      try {
+        const songBuf = await decodeExportAudio(songAudio.src)
+        let off = chart.bgmOffsetSec || 0
+        if (off < 0 && !chart.musicDelayedEntry) off = 0
+        const src = ctx.createBufferSource()
+        src.buffer = songBuf
+        src.playbackRate.value = speed
+        const gain = ctx.createGain()
+        gain.gain.value = songVolume
+        src.connect(gain).connect(ctx.destination)
+        if (off >= 0) src.start(0, Math.min(off, songBuf.duration))
+        else src.start(-off / speed, 0)
+        haveAny = true
+      } catch (err) { console.warn("曲子解码失败，导出不含曲子:", err); }
+    }
+    if (hitPool.length) {
+      try {
+        const hitBuf = await decodeExportAudio(hitPool[0].src)
+        for (const nt of chart.notes) {
+          const t = nt.second / speed
+          if (t >= outputDur) break
+          // 多押按chordCount调度多个源
+          for (let k = 0; k < (nt.chordCount || 1); k++) {
+            const src = ctx.createBufferSource()
+            src.buffer = hitBuf
+            src.connect(ctx.destination)
+            src.start(t)
+          }
+        }
+        haveAny = true
+      } catch (err) { console.warn("打击音解码失败，导出不含打击音:", err); }
+    }
+    if (!haveAny) return null
+    return await ctx.startRendering()
+  }
+
+  // 混好的AudioBuffer切块送worker编码f32-planar
+  async function sendExportAudio(mixed) {
+    const n = mixed.length
+    const ch0 = mixed.getChannelData(0)
+    const ch1 = mixed.numberOfChannels > 1 ? mixed.getChannelData(1) : ch0
+    const CHUNK = EXPORT_SR
+    for (let off = 0; off < n; off += CHUNK) {
+      if (exportCancelFlag) return
+      const frames = Math.min(CHUNK, n - off)
+      const planar = new Float32Array(frames * 2)
+      planar.set(ch0.subarray(off, off + frames), 0)
+      planar.set(ch1.subarray(off, off + frames), frames)
+      const ad = new AudioData({
+        format: "f32-planar",
+        sampleRate: EXPORT_SR,
+        numberOfFrames: frames,
+        numberOfChannels: 2,
+        data: planar,
+        timestamp: Math.round(off / EXPORT_SR * 1e6)
+      })
+      exportPendingAcks++
+      exportWorker.postMessage({ type: "audio", data: ad }, [ad])
+      await awaitExportAcks()
+    }
+  }
+
+  const EXPORT_CROP_L = 24
+  const EXPORT_CROP_T = 54
+  const EXPORT_CROP_H = 140
+
+  function setupExportCanvas() {
+    const box = document.querySelector(".chart-area")
+    // 编码器要求宽高为偶数
+    exportW = Math.floor((box.clientWidth - EXPORT_CROP_L) / 2) * 2
+    exportH = Math.floor(EXPORT_CROP_H / 2) * 2
+    if (!exportCanvas) {
+      exportCanvas = document.createElement("canvas")
+      exportCanvas.style.display = "none"
+      document.body.appendChild(exportCanvas)
+    }
+    exportCanvas.width = exportW * EXPORT_SCALE
+    exportCanvas.height = exportH * EXPORT_SCALE
+    exportCtx = exportCanvas.getContext("2d")
+  }
+
+  function exportFileName() {
+    const src = ($("fileLabel").textContent || "").trim() || "chart"
+    const clean = src.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)
+    return clean + "-export.mp4"
+  }
+
+  // 把播放区当前帧画进导出画布
+  function drawExportFrame(sec) {
+    const chart = state.chart
+    if (!chart || !exportCtx) return
+    const ctx = exportCtx
+    const ppb = state.pixelsPerBeat
+    const beat = secondToBeat(sec, chart.bpmSegments)
+    const y0 = 54        // 时间轴顶部 = chart padding24 + wrap padding30
+    const midY = y0 + 70 // 中线 / 音符中心
+    const judgeX = 194   // 判定环圆心 = playHead left166 + 28
+    const W = exportW, H = exportH
+    const xOf = b => judgeX + (b - beat) * ppb
+
+    ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, -EXPORT_CROP_L * EXPORT_SCALE, -EXPORT_CROP_T * EXPORT_SCALE)
+    ctx.fillStyle = "#000"
+    ctx.fillRect(EXPORT_CROP_L, EXPORT_CROP_T, W, H)
+
+    // 中线
+    ctx.fillStyle = "rgba(255,255,255,0.15)"
+    ctx.fillRect(0, midY - 1, W, 2)
+
+    // 可见拍范围
+    const bMin = beat - (judgeX + 20) / ppb
+    const bMax = beat + (W + 20) / ppb
+
+    // 线
+    ctx.fillStyle = "rgba(255,255,255,0.06)"
+    for (let b = Math.ceil(bMin * 4) / 4; b <= bMax; b += 0.25) {
+      if (Math.abs(b - Math.round(b)) < 0.0001) continue
+      ctx.fillRect(Math.round(xOf(b)), y0, 1, 140)
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.2)"
+    for (let b = Math.ceil(bMin); b <= bMax; b++) {
+      if (b % 4 === 0) continue
+      ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
+    }
+    ctx.font = "700 13px 'Microsoft YaHei', sans-serif"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    for (let bar = Math.ceil(bMin / 4); bar <= Math.floor(bMax / 4); bar++) {
+      const x = Math.round(xOf(bar * 4))
+      ctx.fillStyle = bar % 2 === 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+      ctx.fillRect(x, y0 + 32, 1, 76)
+      ctx.fillStyle = "rgba(255,255,255,0.75)"
+      ctx.fillText(String(bar), x, y0 + 14)
+    }
+    chart.bpmSegments.forEach(function (s, i) {
+      if (i === 0) return
+      const x = Math.round(xOf(s.startBeat))
+      if (x < -5 || x > W + 5) return
+      ctx.strokeStyle = "rgba(77,224,255,0.9)"
+      ctx.setLineDash([4, 4])
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(x, y0 + 32); ctx.lineTo(x, y0 + 108); ctx.stroke()
+      ctx.setLineDash([])
+      const tag = String(Math.round(s.bpm))
+      ctx.font = "800 11px 'Microsoft YaHei', sans-serif"
+      const tw = ctx.measureText(tag).width + 12
+      ctx.fillStyle = "rgba(0,0,0,0.6)"
+      ctx.fillRect(x - tw / 2, y0 + 122, tw, 17)
+      ctx.fillStyle = "#4de0ff"
+      ctx.fillText(tag, x, y0 + 131)
+    })
+
+    // note
+    for (let i = 0; i < chart.notes.length; i++) {
+      const nt = chart.notes[i]
+      if (nt.beatVal <= beat) continue
+      const x = xOf(nt.beatVal)
+      if (x > W + 20) break
+      if (x < 150) continue
+      const y = midY
+      const dotted = nt.actualValueInfo.dotted
+      const isChordHi = state.showChords && nt.chordCount >= 2
+      ctx.lineWidth = isChordHi ? 2.5 : 2
+      ctx.strokeStyle = isChordHi ? "#fbbf24" : "rgba(255,255,255,0.9)"
+      if (isChordHi) { ctx.shadowColor = "rgba(251,191,36,0.65)"; ctx.shadowBlur = 16 }
+      ctx.fillStyle = EXPORT_COLORS[nt.colorInfo.cls] || "#4da6ff"
+      if (dotted) {
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.rotate(Math.PI / 4)
+        ctx.fillRect(-15, -15, 30, 30)
+        ctx.strokeRect(-15, -15, 30, 30)
+        ctx.restore()
+      } else {
+        ctx.beginPath()
+        ctx.arc(x, y, 15, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      }
+      if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
+      let displayNum = null
+      if (dotted) displayNum = "·"
+      else if (nt.colorInfo.num && !nt.colorInfo.dotted) displayNum = nt.colorInfo.num
+      if (displayNum) {
+        ctx.fillStyle = "#fff"
+        ctx.font = (dotted ? "900 16px " : "800 12px ") + "'Microsoft YaHei', sans-serif"
+        ctx.fillText(displayNum, x, y + 1)
+      }
+      if (4 / nt.actualValueInfo.v <= 4) {
+        const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
+        ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
+        ctx.font = "700 11px 'Microsoft YaHei', sans-serif"
+        ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 107)
+      }
+    }
+
+    // BPM面板
+    ctx.fillStyle = "#0f172a"
+    ctx.fillRect(24, y0, 130, 140)
+    ctx.strokeStyle = "rgba(255,255,255,0.15)"
+    ctx.lineWidth = 1
+    ctx.strokeRect(24.5, y0 + 0.5, 129, 139)
+    ctx.fillStyle = "#fff"
+    ctx.font = "600 14px 'Microsoft YaHei', sans-serif"
+    ctx.fillText("BPM", 89, y0 + 48)
+    ctx.font = "800 36px 'Microsoft YaHei', sans-serif"
+    ctx.fillText(String(Math.round(bpmAt(beat))), 89, y0 + 88)
+
+    // 判定环
+    ctx.strokeStyle = "#fff"
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.arc(judgeX, midY, 19, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  function restoreAfterExport() {
+    for (const k of Object.keys(exportWaiters)) delete exportWaiters[k]
+    exportPendingAcks = 0
+    state.exporting = false
+    exportCancelFlag = false
+    $("exportBtn").textContent = "导出"
+    $("playBtn").disabled = !state.chart
+    $("pauseBtn").disabled = true
+    $("resetBtn").disabled = !state.chart
+    $("speedSel").disabled = false
+  }
+
+  async function startExport() {
+    if (!state.chart || state.exporting) return
+    if (!window.VideoEncoder || !window.AudioEncoder) {
+      alert("当前浏览器不支持导出（缺少 WebCodecs）\n需要 Chrome/Edge 94+")
+      return
+    }
+    state.exporting = true
+    exportCancelFlag = false
+    $("playBtn").disabled = true
+    $("pauseBtn").disabled = true
+    $("resetBtn").disabled = true
+    $("speedSel").disabled = true
+    $("exportBtn").textContent = "导出中… 0%"
+
+    const chart = state.chart
+    const speed = state.speed
+    const outputDur = chart.playEndSeconds / speed
+    const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
+
+    try {
+      // 画布 + worker + 编码器初始化
+      setupExportCanvas()
+      exportWorker = new Worker("export-worker.js")
+      let fatal = null
+      attachExportWorker((err) => { fatal = fatal || err; })
+      const failFast = () => { if (fatal) throw fatal; }
+
+      const readyP = exportAwait("ready")
+      exportWorker.postMessage({
+        type: "init",
+        videoCodecs: ["avc1.640028", "avc1.4d0028", "avc1.42001f"], // High→Main→Baseline兜底
+        width: exportCanvas.width,
+        height: exportCanvas.height,
+        fps: EXPORT_FPS,
+        audio: { sampleRate: EXPORT_SR, channels: 2 }
+      })
+      await readyP
+      failFast()
+
+      const mixed = await mixExportAudio(outputDur)
+
+      // 逐帧渲染，第k帧画谱面时间(k/60)*speed的状态
+      const KEY_INT = 120 // 每 2 秒一个关键帧
+      for (let k = 0; k < totalFrames; k++) {
+        if (exportCancelFlag || fatal) break
+        drawExportFrame((k / EXPORT_FPS) * speed)
+        const frame = new VideoFrame(exportCanvas, {
+          timestamp: Math.round(k * 1e6 / EXPORT_FPS),
+          duration: Math.round(1e6 / EXPORT_FPS)
+        })
+        exportPendingAcks++
+        exportWorker.postMessage(
+          { type: "frame", frame, keyFrame: k % KEY_INT === 0 },
+          [frame]
+        )
+        await awaitExportAcks()
+        // 定期让出主线程更新进度
+        if (k % 30 === 0) {
+          $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%（点击取消）"
+          await new Promise((r) => setTimeout(r, 0))
+        }
+      }
+      failFast()
+
+      if (exportCancelFlag) {
+        exportWorker.terminate()
+        exportWorker = null
+        return
+      }
+
+      // 收尾，音频分块编码，封装成 mp4
+      const vdP = exportAwait("video-done")
+      exportWorker.postMessage({ type: "flush-video" })
+      await vdP
+      failFast()
+
+      if (mixed) await sendExportAudio(mixed)
+      failFast()
+
+      const resultP = exportAwait("result")
+      exportWorker.postMessage({ type: "finish" })
+      const result = await resultP
+      failFast()
+      exportWorker.terminate()
+      exportWorker = null
+
+      // 下载
+      const blob = new Blob([result.buffer], { type: "video/mp4" })
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = exportFileName()
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000)
+    } catch (err) {
+      if (exportWorker) { try { exportWorker.terminate(); } catch (e2) { /* ignore */ } exportWorker = null; }
+      alert("导出失败: " + err.message)
+      console.error(err)
+    } finally {
+      restoreAfterExport()
+    }
+  }
+
+
+
+  $("fileInput").addEventListener("change", function (e) {
+    const f = e.target.files[0]
+    if (!f) return
+    $("fileLabel").firstChild.textContent = f.name + " "
+    const reader = new FileReader()
+    reader.onload = function (ev) {
+      try {
+        // 解析失败时把原文文本传下去，由适配器按内容识别
+        const text = String(ev.target.result).replace(/^\uFEFF/, "")
+        let raw
+        try { raw = JSON.parse(text) } catch (e2) { raw = text }
+        // 扩展名传给解析器分发格式
+        const ext = (f.name.split(".").pop() || "").toLowerCase()
+        const chart = parseChart(raw, { kind: ext })
+        if (!chart.notes.length) {
+          alert("未在谱面中找到note！")
+          return
+        }
+        state.chart = chart
+        renderTimeline()
+        reset()
+      } catch (err) {
+        alert("谱面解析失败: " + err.message)
+        console.error(err)
+      }
+    }
+    reader.readAsText(f, "utf-8")
+  })
+
+  $("demoBtn").addEventListener("click", async function () {
+    // 尝试fetch test目录的示例谱
+    try {
+      const resp = await fetch("./test/1786750493.json", { cache: "no-store" })
+      if (!resp.ok) throw new Error("HTTP " + resp.status)
+      const text = await resp.text()
+      let raw
+      try { raw = JSON.parse(text) } catch (e) { raw = text }
+      const chart = parseChart(raw)
+      state.chart = chart
+      renderTimeline()
+      reset()
+    } catch (err) {
+      console.error(err)
+      alert("载入示例失败")
+    }
+  })
+
+  $("playBtn").addEventListener("click", play)
+  $("pauseBtn").addEventListener("click", pause)
+  $("resetBtn").addEventListener("click", reset)
+
+  $("chordBtn").addEventListener("click", function () {
+    state.showChords = !state.showChords
+    document.body.classList.toggle("show-chords", state.showChords)
+    $("chordBtn").classList.toggle("active", state.showChords)
+  })
+
+  $("exportBtn").addEventListener("click", function () {
+    if (state.exporting) cancelExport()
+    else startExport()
+  })
+
+  $("speedSel").addEventListener("change", function (e) {
+    const newSpeed = parseFloat(e.target.value)
+    const now = performance.now()
+    if (state.playing) {
+      // 先算出当前实际播放到的秒数，再无缝切换到新速度
+      const elapsed = (now - state.wallStartPerf) / 1000 * state.speed
+      state.curSec = state.playFromSec + elapsed
+      state.speed = newSpeed
+      state.playFromSec = state.curSec
+      state.wallStartPerf = now
+    } else {
+      state.speed = newSpeed
+    }
+    if (songAudio) songAudio.playbackRate = newSpeed
+  })
+
+  /* 拖动时间轴定位播放头：时间/拍/BPM/音符显隐实时同步，
+     播放从当前位置继续；播放中 autoScroll 回写的 scroll 事件忽略 */
+  $("canvasWrap").addEventListener("scroll", function () {
+    if (!state.chart || state.playing) return
+    const wrap = $("canvasWrap")
+    const timeline = $("timeline")
+    const minBeat = timeline._minBeat || 0
+    const ppb = state.pixelsPerBeat
+    // 与 updatePlayhead 的 autoScroll 公式互为反函数：
+    //   scrollLeft = (marginLeft - judgeCenter) + (beat - minBeat) * ppb
+    const timelineMarginLeft = parseFloat(getComputedStyle(timeline).marginLeft) || 260
+    const wrapRect = wrap.getBoundingClientRect()
+    const headRect = $("playHead").getBoundingClientRect()
+    const judgeCenterInWrap = (headRect.left + headRect.width / 2) - wrapRect.left
+    let beat = minBeat + (wrap.scrollLeft - (timelineMarginLeft - judgeCenterInWrap)) / ppb
+    // 两端留白区域 clamp 回谱面范围
+    beat = Math.max(minBeat, Math.min(beat, state.chart.chartEndBeat))
+
+    // 音符显隐按拖动后的位置全量重算
+    const noteEls = timeline._noteEls
+    if (noteEls) {
+      let idx = 0
+      for (let i = 0; i < noteEls.length; i++) {
+        const passed = parseFloat(noteEls[i].dataset.beat) <= beat
+        noteEls[i].classList.toggle("passed", passed)
+        if (passed) idx = i + 1
+      }
+      timeline._hiddenIdx = idx
+    }
+
+    // autoScroll=false：不回写 scrollLeft，避免和用户拖动互相打架
+    updatePlayhead(beatToSecond(beat, state.chart.bpmSegments), false)
+  })
+
+  document.addEventListener("keydown", function (e) {
+    if (state.exporting) {
+      if (e.code === "Space" || e.code === "KeyR") e.preventDefault()
+      if (e.code === "Space") cancelExport()
+      return
+    }
+    if (e.code === "Space") {
+      if (!state.chart) return
+      e.preventDefault()
+      state.playing ? pause() : play()
+    } else if (e.code === "KeyR") {
+      if (!state.chart) return
+      reset()
+    }
+  })
+</script>
+
+</html>
