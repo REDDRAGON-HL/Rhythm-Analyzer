@@ -18,6 +18,11 @@
     color: #fff;
     min-height: 100vh;
     overflow-x: hidden;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+
+  body.custom-font {
+    font-family: "UserFont", "Microsoft YaHei", "PingFang SC", sans-serif;
   }
 
   .toolbar {
@@ -369,8 +374,8 @@
 
   @keyframes bpmValueFlash {
     0% {
-      text-shadow: 0 0 6px #fff, 0 0 14px rgba(255, 255, 255, 0.8);
-      transform: scale(1.06);
+      text-shadow: 0 0 9px #fff, 0 0 21px rgba(255, 255, 255, 1);
+      transform: scale(1.09);
     }
 
     100% {
@@ -381,7 +386,7 @@
 
   @keyframes bpmTextFlash {
     0% {
-      text-shadow: 0 0 6px #fff, 0 0 14px rgba(255, 255, 255, 0.8);
+      text-shadow: 0 0 9px #fff, 0 0 21px rgba(255, 255, 255, 1);
     }
 
     100% {
@@ -390,11 +395,11 @@
   }
 
   .bpm-panel.flash .bpm-label {
-    animation: bpmTextFlash 0.3s ease-out;
+    animation: bpmTextFlash 1s ease-out;
   }
 
   .bpm-panel.flash .bpm-value {
-    animation: bpmValueFlash 0.3s cubic-bezier(0.22, 1.2, 0.36, 1);
+    animation: bpmValueFlash 1s cubic-bezier(0.22, 1.2, 0.36, 1);
     transform-origin: center;
   }
 
@@ -602,13 +607,13 @@
     font-weight: 700;
   }
 
-  .info-panel  a {
+  .info-panel a {
     color: #fbbf24;
     text-decoration: none;
   }
 
-  .info-panel  a:hover,
-  .info-panel  a:active {
+  .info-panel a:hover,
+  .info-panel a:active {
     color: #ff182f;
   }
 
@@ -751,6 +756,7 @@
         <option value="4">4.0x</option>
       </select>
       <button id="chordBtn">显示多押</button>
+      <button id="bpmAnimBtn" class="active" title="bpm切换时动效开关">BPM动效</button>
       <button id="exportBtn" disabled title="逐帧渲染导出为 mp4">导出</button>
     </div>
     <div class="toolbar sub-row">
@@ -767,6 +773,9 @@
         <input type="range" id="songVol" min="0" max="100" value="100" title="曲子音量">
       </span>
       <button id="demoBtn">载入示例</button>
+      <label class="file-label" id="fontLabel">导入字体
+        <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/*">
+      </label>
     </div>
   </div>
 
@@ -858,7 +867,8 @@
     playBeat: 0,        // 当前播放头所在的拍号
     lastShownBpm: null, // 上次显示的 BPM
     exporting: false,   // 是否正在导出视频
-    showChords: false   // 显示多押开关
+    showChords: false,  // 显示多押开关
+    bpmAnim: true       // BPM 动画开关
   }
 
   const $ = id => document.getElementById(id)
@@ -949,6 +959,7 @@
     $("pauseBtn").disabled = true
     $("resetBtn").disabled = true
     $("chordBtn").disabled = true
+    $("bpmAnimBtn").disabled = true
     $("exportBtn").disabled = true
     $("fileLabel").firstChild.textContent = "加载谱面 "
   }
@@ -974,6 +985,81 @@
     hitPoolIdx = 0
     $("hitLabel").firstChild.textContent = "加载打击音 "
   })
+
+      // 自定义字体
+      let userFontFace = null
+      const EXPORT_FONT = () => document.body.classList.contains("custom-font")
+        ? "'UserFont', 'Microsoft YaHei', sans-serif"
+        : "'Microsoft YaHei', sans-serif"
+
+      function stripSfntTable(buf, tag) {
+        const dv = new DataView(buf)
+        if (buf.byteLength < 12) return null
+        const numTables = dv.getUint16(4)
+        let hit = -1
+        for (let i = 0; i < numTables; i++) {
+          const off = 12 + i * 16
+          const t = String.fromCharCode(dv.getUint8(off), dv.getUint8(off + 1), dv.getUint8(off + 2), dv.getUint8(off + 3))
+          if (t === tag) { hit = i; break }
+        }
+        if (hit < 0) return null
+        const n = numTables - 1
+        const entrySel = Math.floor(Math.log2(n))
+        const out = new Uint8Array(buf)
+        const odv = new DataView(out.buffer)
+        odv.setUint16(4, n)
+        odv.setUint16(6, 16 * (1 << entrySel))
+        odv.setUint16(8, entrySel)
+        odv.setUint16(10, n * 16 - 16 * (1 << entrySel))
+        let w = 12
+        for (let i = 0; i < numTables; i++) {
+          if (i === hit) continue
+          out.set(new Uint8Array(buf, 12 + i * 16, 16), w)
+          w += 16
+        }
+        return out.buffer
+      }
+
+      function applyFont(buf, name) {
+        const face = new FontFace("UserFont", buf)
+        return face.load().then(function (loaded) {
+          if (userFontFace) document.fonts.delete(userFontFace)
+          userFontFace = loaded
+          document.fonts.add(loaded)
+          document.body.classList.add("custom-font")
+          $("fontLabel").firstChild.textContent = name + " "
+        })
+      }
+
+      $("fontInput").addEventListener("change", function (e) {
+        const f = e.target.files[0]
+        e.target.value = ""
+        if (!f) return
+        const reader = new FileReader()
+        reader.onload = function (ev) {
+          applyFont(ev.target.result, f.name).catch(function () {
+            const fixed = stripSfntTable(ev.target.result, "STAT")
+            if (fixed) {
+              applyFont(fixed, f.name).catch(function () {
+                alert("字体载入失败：文件可能不是有效的字体文件（支持 ttf / otf / woff / woff2）")
+              })
+            } else {
+              alert("字体载入失败：文件可能不是有效的字体文件（支持 ttf / otf / woff / woff2）")
+            }
+          })
+        }
+        reader.readAsArrayBuffer(f)
+      })
+
+      $("fontLabel").addEventListener("contextmenu", function (e) {
+        e.preventDefault()
+        if (userFontFace) {
+          document.fonts.delete(userFontFace)
+          userFontFace = null
+        }
+        document.body.classList.remove("custom-font")
+        $("fontLabel").firstChild.textContent = "导入字体 "
+      })
 
   function renderTimeline() {
     const chart = state.chart
@@ -1102,6 +1188,7 @@
     $("pauseBtn").disabled = true
     $("resetBtn").disabled = false
     $("chordBtn").disabled = false
+    $("bpmAnimBtn").disabled = false
     $("exportBtn").disabled = false
   }
 
@@ -1149,10 +1236,12 @@
     const roundedBpm = Math.round(bpmAt(beat))
     if (roundedBpm !== state.lastShownBpm) {
       state.lastShownBpm = roundedBpm
-      const panel = $("bpmPanel")
-      panel.classList.remove("flash")
-      void panel.offsetWidth
-      panel.classList.add("flash")
+      if (state.bpmAnim) {
+        const panel = $("bpmPanel")
+        panel.classList.remove("flash")
+        void panel.offsetWidth
+        panel.classList.add("flash")
+      }
     }
     $("bpmLarge").textContent = roundedBpm
 
@@ -1460,7 +1549,7 @@
       if (b % 4 === 0) continue
       ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
     }
-    ctx.font = "700 13px 'Microsoft YaHei', sans-serif"
+    ctx.font = "700 13px " + EXPORT_FONT()
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
     for (let bar = Math.ceil(bMin / 4); bar <= Math.floor(bMax / 4); bar++) {
@@ -1480,7 +1569,7 @@
       ctx.beginPath(); ctx.moveTo(x, y0 + 32); ctx.lineTo(x, y0 + 108); ctx.stroke()
       ctx.setLineDash([])
       const tag = String(Math.round(s.bpm))
-      ctx.font = "800 11px 'Microsoft YaHei', sans-serif"
+      ctx.font = "800 11px " + EXPORT_FONT()
       const tw = ctx.measureText(tag).width + 12
       ctx.fillStyle = "rgba(0,0,0,0.6)"
       ctx.fillRect(x - tw / 2, y0 + 122, tw, 17)
@@ -1521,13 +1610,13 @@
       else if (nt.colorInfo.num && !nt.colorInfo.dotted) displayNum = nt.colorInfo.num
       if (displayNum) {
         ctx.fillStyle = "#fff"
-        ctx.font = (dotted ? "900 16px " : "800 12px ") + "'Microsoft YaHei', sans-serif"
+        ctx.font = (dotted ? "900 16px " : "800 12px ") + EXPORT_FONT()
         ctx.fillText(displayNum, x, y + 1)
       }
       if (4 / nt.actualValueInfo.v <= 4) {
         const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
         ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
-        ctx.font = "700 11px 'Microsoft YaHei', sans-serif"
+        ctx.font = "700 11px " + EXPORT_FONT()
         ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 107)
       }
     }
@@ -1539,9 +1628,9 @@
     ctx.lineWidth = 1
     ctx.strokeRect(24.5, y0 + 0.5, 129, 139)
     ctx.fillStyle = "#fff"
-    ctx.font = "600 14px 'Microsoft YaHei', sans-serif"
+    ctx.font = "600 14px " + EXPORT_FONT()
     ctx.fillText("BPM", 89, y0 + 48)
-    ctx.font = "800 36px 'Microsoft YaHei', sans-serif"
+    ctx.font = "800 36px " + EXPORT_FONT()
     ctx.fillText(String(Math.round(bpmAt(beat))), 89, y0 + 88)
 
     // 判定环
@@ -1570,6 +1659,7 @@
       alert("当前浏览器不支持导出（缺少 WebCodecs）\n需要 Chrome/Edge 94+")
       return
     }
+    try { await document.fonts.ready } catch (e) { }
     state.exporting = true
     exportCancelFlag = false
     $("playBtn").disabled = true
@@ -1725,6 +1815,12 @@
     document.body.classList.toggle("show-chords", state.showChords)
     $("chordBtn").classList.toggle("active", state.showChords)
   })
+
+      $("bpmAnimBtn").addEventListener("click", function () {
+        state.bpmAnim = !state.bpmAnim
+        $("bpmAnimBtn").classList.toggle("active", state.bpmAnim)
+        if (!state.bpmAnim) $("bpmPanel").classList.remove("flash")
+      })
 
   $("exportBtn").addEventListener("click", function () {
     if (state.exporting) cancelExport()
