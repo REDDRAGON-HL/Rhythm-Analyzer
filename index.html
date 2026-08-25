@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -143,6 +143,91 @@
 
   input[type=file] {
     display: none;
+  }
+
+  /* 导出设置模态框 */
+  .modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-mask.open {
+    display: flex;
+  }
+
+  .modal {
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 20px 24px;
+    width: 320px;
+  }
+
+  .modal h3 {
+    font-size: 16px;
+    color: #fbbf24;
+    margin-bottom: 16px;
+  }
+
+  .modal .form-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #e2e8f0;
+  }
+
+  .modal .form-row label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .modal input[type=checkbox] {
+    accent-color: #fbbf24;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .modal select {
+    max-width: 140px;
+  }
+
+  .modal .hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin: -6px 0 12px 0;
+    line-height: 1.5;
+  }
+
+  .modal .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .modal .btn-row button {
+    flex: 1;
+  }
+
+  #modalGoBtn {
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.7);
+    color: #6ee7b7;
+  }
+
+  #modalGoBtn:hover {
+    background: rgba(52, 211, 153, 0.2);
+    border-color: #34d399;
+    color: #a7f3d0;
   }
 
   select {
@@ -341,8 +426,8 @@
 
   .sub-line {
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 40px;
+    bottom: 40px;
     width: 1px;
     background: rgba(255, 255, 255, 0.06);
   }
@@ -757,7 +842,7 @@
       </select>
       <button id="chordBtn">显示多押</button>
       <button id="bpmAnimBtn" class="active" title="bpm切换时动效开关">BPM动效</button>
-      <button id="exportBtn" disabled title="逐帧渲染导出为 mp4">导出</button>
+      <button id="exportBtn" disabled title="逐帧渲染导出视频">导出</button>
     </div>
     <div class="toolbar sub-row">
       <label class="file-label" id="fileLabel" title="右键点击取消载入">加载谱面
@@ -849,11 +934,62 @@
     </div>
   </div>
 
+  <!-- 导出设置模态框：点导出弹出，选择后开始走原导出流程 -->
+  <div class="modal-mask" id="exportModal">
+    <div class="modal">
+      <h3>导出设置</h3>
+      <div class="form-row">
+        <span>背景</span>
+        <select id="optBg">
+          <option value="black" selected>黑底（mp4）</option>
+          <option value="transparent">透明（MOV，PNG 无损 alpha）</option>
+          <option value="pngseq">透明（PNG 序列 zip）</option>
+        </select>
+      </div>
+      <div class="hint" id="optHint">MP4（H.264 + AAC）</div>
+      <div class="form-row">
+        <label><input type="checkbox" id="optPanel"> BPM 面板透明</label>
+      </div>
+      <div class="form-row">
+        <span>帧率</span>
+        <select id="optFps">
+          <option value="30">30 fps</option>
+          <option value="60" selected>60 fps</option>
+          <option value="90">90 fps</option>
+          <option value="120">120 fps</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <span>音频采样率</span>
+        <select id="optSr">
+          <option value="44100">44100 Hz</option>
+          <option value="48000" selected>48000 Hz</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <span>输出格式</span>
+        <select id="optFmt">
+          <option value="source" selected>保持源格式</option>
+          <option value="mp4">MP4（H.264 + AAC）</option>
+          <option value="mkv">MKV（H.264 + AAC）</option>
+          <option value="mov">MOV（H.264 / PNG + AAC）</option>
+          <option value="avi">AVI（MPEG4 / PNG + MP3）</option>
+        </select>
+      </div>
+      <div class="hint" id="fmtHint"></div>
+      <div class="btn-row">
+        <button id="modalCancelBtn">取消</button>
+        <button id="modalGoBtn">开始导出</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 
 <script src="chart-core.js"></script>
 <script src="malody-mc.js"></script>
 <script src="osu-mania.js"></script>
+<script src="chart-export.js"></script>
 <script>
   let state = {
     chart: null,
@@ -871,7 +1007,7 @@
     bpmAnim: true       // BPM 动画开关
   }
 
-  const $ = id => document.getElementById(id)
+    const $ = id => document.getElementById(id)  // 唉怎么想到的这个有点强
 
   let songAudio = null  // 载入的曲子
   let songVolume = 1    // 曲子音量
@@ -987,10 +1123,7 @@
   })
 
       // 自定义字体
-      let userFontFace = null
-      const EXPORT_FONT = () => document.body.classList.contains("custom-font")
-        ? "'UserFont', 'Microsoft YaHei', sans-serif"
-        : "'Microsoft YaHei', sans-serif"
+        let userFontFace = null
 
       function stripSfntTable(buf, tag) {
         const dv = new DataView(buf)
@@ -1060,6 +1193,53 @@
         document.body.classList.remove("custom-font")
         $("fontLabel").firstChild.textContent = "导入字体 "
       })
+
+        function unloadChart() {
+          if (state.exporting) return
+          state.playing = false
+          stopSong()
+          cancelAnimationFrame(state.rafId)
+          state.chart = null
+          state.curSec = 0
+          state.playFromSec = 0
+          state.wallStartPerf = 0
+          const timeline = $("timeline")
+          timeline.innerHTML = ""
+          timeline.style.display = "none"
+          $("emptyState").style.display = ""
+          $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(0)
+          $("beatVal").textContent = "0.00"
+          $("noteCount").textContent = "0"
+          $("playBtn").disabled = true
+          $("pauseBtn").disabled = true
+          $("resetBtn").disabled = true
+          $("chordBtn").disabled = true
+          $("bpmAnimBtn").disabled = true
+          $("exportBtn").disabled = true
+          $("fileLabel").firstChild.textContent = "加载谱面 "
+        }
+
+        $("fileLabel").addEventListener("contextmenu", function (e) {
+          e.preventDefault()
+          unloadChart()
+        })
+
+        $("songLabel").addEventListener("contextmenu", function (e) {
+          e.preventDefault()
+          if (songAudio) {
+            stopSong()
+            URL.revokeObjectURL(songAudio.src)
+            songAudio = null
+          }
+          $("songLabel").firstChild.textContent = "加载音乐 "
+        })
+
+        $("hitLabel").addEventListener("contextmenu", function (e) {
+          e.preventDefault()
+          hitPool = []
+          hitPoolIdx = 0
+          $("hitLabel").firstChild.textContent = "加载打击音 "
+        })
 
   function renderTimeline() {
     const chart = state.chart
@@ -1201,6 +1381,16 @@
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms).padStart(3, "0")}`
   }
 
+        // BPM 动画
+        function easeFlash(u) {
+          if (u <= 0) return 0
+          if (u >= 1) return 1
+          const t = u
+          const easeOutCubic = 1 - (1 - t) * (1 - t) * (1 - t)
+          const overshoot = 0.055 * Math.sin(t * Math.PI) * (1 - t)
+          return Math.min(1, Math.max(0, easeOutCubic + overshoot))
+        }
+
   // 当前拍所在的 BPM
   function bpmAt(beat) {
     const chart = state.chart
@@ -1335,429 +1525,6 @@
     $("pauseBtn").disabled = true
   }
 
-  //导出，逐帧渲染播放区，VideoFrame发给export-worker.js封装视频，音频经OfflineAudioContext
-  const EXPORT_SCALE = 2    // 2倍分辨率
-  const EXPORT_FPS = 60     // 视频帧率
-  const EXPORT_SR = 48000   // 音频采样率
-  // 填充色
-  const EXPORT_COLORS = {
-    "std-4": "#1038ff", "std-8": "#ff182f", "std-16": "#4da6ff", "std-32": "#4de0ff",
-    "dot-4": "#1038ff", "dot-8": "#ff182f", "dot-16": "#4da6ff",
-    "trip-3": "#22d27e", "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e",
-    "quin-5": "#8b4dd2", "quin-10": "#c266ff", "quin-20": "#ff6dd1",
-    "sept-7": "#7c6bff", "sept-14": "#b59cff",
-    "nine-9": "#1fbfb0", "nine-18": "#34d399"
-  }
-  // 时值色
-  const EXPORT_VALUE_COLORS = {
-    "std-value": "#93c5fd", "dot-value": "#fca5a5", "trip-value": "#86efac",
-    "quin-value": "#e9d5ff", "sept-value": "#c7d2fe", "nine-value": "#6ee7b7"
-  }
-
-  let exportCanvas = null, exportCtx = null, exportW = 0, exportH = 0
-  let exportWorker = null
-  let exportCancelFlag = false
-  let exportPendingAcks = 0
-
-  // 取消导出
-  function cancelExport() {
-    if (!state.exporting) return
-    exportCancelFlag = true
-    $("exportBtn").textContent = "正在取消…"
-  }
-
-  // worker消息分发
-  const exportWaiters = {}
-  function exportAwait(type) {
-    return new Promise(function (resolve, reject) {
-      (exportWaiters[type] = exportWaiters[type] || []).push({ resolve, reject })
-    })
-  }
-  // 出错时让所有等待中的步骤直接失败
-  function rejectExportWaiters(err) {
-    for (const k of Object.keys(exportWaiters)) {
-      const list = exportWaiters[k]
-      exportWaiters[k] = []
-      for (const w of list) w.reject(err)
-    }
-  }
-  function attachExportWorker(onError) {
-    exportWorker.onmessage = function (e) {
-      const d = e.data
-      if (d.type === "ack") {
-        exportPendingAcks = Math.max(0, exportPendingAcks - 1)
-      } else if (d.type === "warn") {
-        console.warn("导出:", d.message)
-      } else if (d.type === "error") {
-        const err = new Error(d.message)
-        onError(err)
-        rejectExportWaiters(err)
-      } else if (exportWaiters[d.type] && exportWaiters[d.type].length) {
-        exportWaiters[d.type].shift().resolve(d)
-      }
-    }
-    exportWorker.onerror = function (e) {
-      const err = new Error(e.message || "worker 加载失败")
-      onError(err)
-      rejectExportWaiters(err)
-    }
-  }
-  // 背压，当在途消息太多时等worker消化
-  function awaitExportAcks() {
-    return new Promise(function (resolve) {
-      const check = () => (exportPendingAcks <= 4 ? resolve() : setTimeout(check, 4))
-      check()
-    })
-  }
-
-  // 解码音频为AudioBuffer，重采样到EXPORT_SR
-  async function decodeExportAudio(url) {
-    const resp = await fetch(url)
-    const buf = await resp.arrayBuffer()
-    const ctx = new OfflineAudioContext(2, 1, EXPORT_SR)
-    return await ctx.decodeAudioData(buf)
-  }
-
-  // 合成整段音频
-  async function mixExportAudio(outputDur) {
-    const chart = state.chart
-    const speed = state.speed
-    const ctx = new OfflineAudioContext(2, Math.ceil((outputDur + 0.3) * EXPORT_SR), EXPORT_SR)
-
-    let haveAny = false
-    if (songAudio) {
-      try {
-        const songBuf = await decodeExportAudio(songAudio.src)
-        let off = chart.bgmOffsetSec || 0
-        if (off < 0 && !chart.musicDelayedEntry) off = 0
-        const src = ctx.createBufferSource()
-        src.buffer = songBuf
-        src.playbackRate.value = speed
-        const gain = ctx.createGain()
-        gain.gain.value = songVolume
-        src.connect(gain).connect(ctx.destination)
-        if (off >= 0) src.start(0, Math.min(off, songBuf.duration))
-        else src.start(-off / speed, 0)
-        haveAny = true
-      } catch (err) { console.warn("曲子解码失败，导出不含曲子:", err); }
-    }
-    if (hitPool.length) {
-      try {
-        const hitBuf = await decodeExportAudio(hitPool[0].src)
-        for (const nt of chart.notes) {
-          const t = nt.second / speed
-          if (t >= outputDur) break
-          // 多押按chordCount调度多个源
-          for (let k = 0; k < (nt.chordCount || 1); k++) {
-            const src = ctx.createBufferSource()
-            src.buffer = hitBuf
-            src.connect(ctx.destination)
-            src.start(t)
-          }
-        }
-        haveAny = true
-      } catch (err) { console.warn("打击音解码失败，导出不含打击音:", err); }
-    }
-    if (!haveAny) return null
-    return await ctx.startRendering()
-  }
-
-  // 混好的AudioBuffer切块送worker编码f32-planar
-  async function sendExportAudio(mixed) {
-    const n = mixed.length
-    const ch0 = mixed.getChannelData(0)
-    const ch1 = mixed.numberOfChannels > 1 ? mixed.getChannelData(1) : ch0
-    const CHUNK = EXPORT_SR
-    for (let off = 0; off < n; off += CHUNK) {
-      if (exportCancelFlag) return
-      const frames = Math.min(CHUNK, n - off)
-      const planar = new Float32Array(frames * 2)
-      planar.set(ch0.subarray(off, off + frames), 0)
-      planar.set(ch1.subarray(off, off + frames), frames)
-      const ad = new AudioData({
-        format: "f32-planar",
-        sampleRate: EXPORT_SR,
-        numberOfFrames: frames,
-        numberOfChannels: 2,
-        data: planar,
-        timestamp: Math.round(off / EXPORT_SR * 1e6)
-      })
-      exportPendingAcks++
-      exportWorker.postMessage({ type: "audio", data: ad }, [ad])
-      await awaitExportAcks()
-    }
-  }
-
-  const EXPORT_CROP_L = 24
-  const EXPORT_CROP_T = 54
-  const EXPORT_CROP_H = 140
-
-  function setupExportCanvas() {
-    const box = document.querySelector(".chart-area")
-    // 编码器要求宽高为偶数
-    exportW = Math.floor((box.clientWidth - EXPORT_CROP_L) / 2) * 2
-    exportH = Math.floor(EXPORT_CROP_H / 2) * 2
-    if (!exportCanvas) {
-      exportCanvas = document.createElement("canvas")
-      exportCanvas.style.display = "none"
-      document.body.appendChild(exportCanvas)
-    }
-    exportCanvas.width = exportW * EXPORT_SCALE
-    exportCanvas.height = exportH * EXPORT_SCALE
-    exportCtx = exportCanvas.getContext("2d")
-  }
-
-  function exportFileName() {
-    const src = ($("fileLabel").textContent || "").trim() || "chart"
-    const clean = src.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)
-    return clean + "-export.mp4"
-  }
-
-  // 把播放区当前帧画进导出画布
-  function drawExportFrame(sec) {
-    const chart = state.chart
-    if (!chart || !exportCtx) return
-    const ctx = exportCtx
-    const ppb = state.pixelsPerBeat
-    const beat = secondToBeat(sec, chart.bpmSegments)
-    const y0 = 54        // 时间轴顶部 = chart padding24 + wrap padding30
-    const midY = y0 + 70 // 中线 / 音符中心
-    const judgeX = 194   // 判定环圆心 = playHead left166 + 28
-    const W = exportW, H = exportH
-    const xOf = b => judgeX + (b - beat) * ppb
-
-    ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, -EXPORT_CROP_L * EXPORT_SCALE, -EXPORT_CROP_T * EXPORT_SCALE)
-    ctx.fillStyle = "#000"
-    ctx.fillRect(EXPORT_CROP_L, EXPORT_CROP_T, W, H)
-
-    // 中线
-    ctx.fillStyle = "rgba(255,255,255,0.15)"
-    ctx.fillRect(0, midY - 1, W, 2)
-
-    // 可见拍范围
-    const bMin = beat - (judgeX + 20) / ppb
-    const bMax = beat + (W + 20) / ppb
-
-    // 线
-    ctx.fillStyle = "rgba(255,255,255,0.06)"
-    for (let b = Math.ceil(bMin * 4) / 4; b <= bMax; b += 0.25) {
-      if (Math.abs(b - Math.round(b)) < 0.0001) continue
-      ctx.fillRect(Math.round(xOf(b)), y0, 1, 140)
-    }
-    ctx.fillStyle = "rgba(255,255,255,0.2)"
-    for (let b = Math.ceil(bMin); b <= bMax; b++) {
-      if (b % 4 === 0) continue
-      ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
-    }
-    ctx.font = "700 13px " + EXPORT_FONT()
-    ctx.textAlign = "center"
-    ctx.textBaseline = "middle"
-    for (let bar = Math.ceil(bMin / 4); bar <= Math.floor(bMax / 4); bar++) {
-      const x = Math.round(xOf(bar * 4))
-      ctx.fillStyle = bar % 2 === 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
-      ctx.fillRect(x, y0 + 32, 1, 76)
-      ctx.fillStyle = "rgba(255,255,255,0.75)"
-      ctx.fillText(String(bar), x, y0 + 14)
-    }
-    chart.bpmSegments.forEach(function (s, i) {
-      if (i === 0) return
-      const x = Math.round(xOf(s.startBeat))
-      if (x < -5 || x > W + 5) return
-      ctx.strokeStyle = "rgba(77,224,255,0.9)"
-      ctx.setLineDash([4, 4])
-      ctx.lineWidth = 2
-      ctx.beginPath(); ctx.moveTo(x, y0 + 32); ctx.lineTo(x, y0 + 108); ctx.stroke()
-      ctx.setLineDash([])
-      const tag = String(Math.round(s.bpm))
-      ctx.font = "800 11px " + EXPORT_FONT()
-      const tw = ctx.measureText(tag).width + 12
-      ctx.fillStyle = "rgba(0,0,0,0.6)"
-      ctx.fillRect(x - tw / 2, y0 + 122, tw, 17)
-      ctx.fillStyle = "#4de0ff"
-      ctx.fillText(tag, x, y0 + 131)
-    })
-
-    // note
-    for (let i = 0; i < chart.notes.length; i++) {
-      const nt = chart.notes[i]
-      if (nt.beatVal <= beat) continue
-      const x = xOf(nt.beatVal)
-      if (x > W + 20) break
-      if (x < 150) continue
-      const y = midY
-      const dotted = nt.actualValueInfo.dotted
-      const isChordHi = state.showChords && nt.chordCount >= 2
-      ctx.lineWidth = isChordHi ? 2.5 : 2
-      ctx.strokeStyle = isChordHi ? "#fbbf24" : "rgba(255,255,255,0.9)"
-      if (isChordHi) { ctx.shadowColor = "rgba(251,191,36,0.65)"; ctx.shadowBlur = 16 }
-      ctx.fillStyle = EXPORT_COLORS[nt.colorInfo.cls] || "#4da6ff"
-      if (dotted) {
-        ctx.save()
-        ctx.translate(x, y)
-        ctx.rotate(Math.PI / 4)
-        ctx.fillRect(-15, -15, 30, 30)
-        ctx.strokeRect(-15, -15, 30, 30)
-        ctx.restore()
-      } else {
-        ctx.beginPath()
-        ctx.arc(x, y, 15, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-      }
-      if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
-      let displayNum = null
-      if (dotted) displayNum = "·"
-      else if (nt.colorInfo.num && !nt.colorInfo.dotted) displayNum = nt.colorInfo.num
-      if (displayNum) {
-        ctx.fillStyle = "#fff"
-        ctx.font = (dotted ? "900 16px " : "800 12px ") + EXPORT_FONT()
-        ctx.fillText(displayNum, x, y + 1)
-      }
-      if (4 / nt.actualValueInfo.v <= 4) {
-        const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
-        ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
-        ctx.font = "700 11px " + EXPORT_FONT()
-        ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 107)
-      }
-    }
-
-    // BPM面板
-    ctx.fillStyle = "#0f172a"
-    ctx.fillRect(24, y0, 130, 140)
-    ctx.strokeStyle = "rgba(255,255,255,0.15)"
-    ctx.lineWidth = 1
-    ctx.strokeRect(24.5, y0 + 0.5, 129, 139)
-    ctx.fillStyle = "#fff"
-    ctx.font = "600 14px " + EXPORT_FONT()
-    ctx.fillText("BPM", 89, y0 + 48)
-    ctx.font = "800 36px " + EXPORT_FONT()
-    ctx.fillText(String(Math.round(bpmAt(beat))), 89, y0 + 88)
-
-    // 判定环
-    ctx.strokeStyle = "#fff"
-    ctx.lineWidth = 2.5
-    ctx.beginPath()
-    ctx.arc(judgeX, midY, 19, 0, Math.PI * 2)
-    ctx.stroke()
-  }
-
-  function restoreAfterExport() {
-    for (const k of Object.keys(exportWaiters)) delete exportWaiters[k]
-    exportPendingAcks = 0
-    state.exporting = false
-    exportCancelFlag = false
-    $("exportBtn").textContent = "导出"
-    $("playBtn").disabled = !state.chart
-    $("pauseBtn").disabled = true
-    $("resetBtn").disabled = !state.chart
-    $("speedSel").disabled = false
-  }
-
-  async function startExport() {
-    if (!state.chart || state.exporting) return
-    if (!window.VideoEncoder || !window.AudioEncoder) {
-      alert("当前浏览器不支持导出（缺少 WebCodecs）\n需要 Chrome/Edge 94+")
-      return
-    }
-    try { await document.fonts.ready } catch (e) { }
-    state.exporting = true
-    exportCancelFlag = false
-    $("playBtn").disabled = true
-    $("pauseBtn").disabled = true
-    $("resetBtn").disabled = true
-    $("speedSel").disabled = true
-    $("exportBtn").textContent = "导出中… 0%"
-
-    const chart = state.chart
-    const speed = state.speed
-    const outputDur = chart.playEndSeconds / speed
-    const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
-
-    try {
-      // 画布 + worker + 编码器初始化
-      setupExportCanvas()
-      exportWorker = new Worker("export-worker.js")
-      let fatal = null
-      attachExportWorker((err) => { fatal = fatal || err; })
-      const failFast = () => { if (fatal) throw fatal; }
-
-      const readyP = exportAwait("ready")
-      exportWorker.postMessage({
-        type: "init",
-        videoCodecs: ["avc1.640028", "avc1.4d0028", "avc1.42001f"], // High→Main→Baseline兜底
-        width: exportCanvas.width,
-        height: exportCanvas.height,
-        fps: EXPORT_FPS,
-        audio: { sampleRate: EXPORT_SR, channels: 2 }
-      })
-      await readyP
-      failFast()
-
-      const mixed = await mixExportAudio(outputDur)
-
-      // 逐帧渲染，第k帧画谱面时间(k/60)*speed的状态
-      const KEY_INT = 120 // 每 2 秒一个关键帧
-      for (let k = 0; k < totalFrames; k++) {
-        if (exportCancelFlag || fatal) break
-        drawExportFrame((k / EXPORT_FPS) * speed)
-        const frame = new VideoFrame(exportCanvas, {
-          timestamp: Math.round(k * 1e6 / EXPORT_FPS),
-          duration: Math.round(1e6 / EXPORT_FPS)
-        })
-        exportPendingAcks++
-        exportWorker.postMessage(
-          { type: "frame", frame, keyFrame: k % KEY_INT === 0 },
-          [frame]
-        )
-        await awaitExportAcks()
-        // 定期让出主线程更新进度
-        if (k % 30 === 0) {
-          $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%（点击取消）"
-          await new Promise((r) => setTimeout(r, 0))
-        }
-      }
-      failFast()
-
-      if (exportCancelFlag) {
-        exportWorker.terminate()
-        exportWorker = null
-        return
-      }
-
-      // 收尾，音频分块编码，封装成 mp4
-      const vdP = exportAwait("video-done")
-      exportWorker.postMessage({ type: "flush-video" })
-      await vdP
-      failFast()
-
-      if (mixed) await sendExportAudio(mixed)
-      failFast()
-
-      const resultP = exportAwait("result")
-      exportWorker.postMessage({ type: "finish" })
-      const result = await resultP
-      failFast()
-      exportWorker.terminate()
-      exportWorker = null
-
-      // 下载
-      const blob = new Blob([result.buffer], { type: "video/mp4" })
-      const a = document.createElement("a")
-      a.href = URL.createObjectURL(blob)
-      a.download = exportFileName()
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000)
-    } catch (err) {
-      if (exportWorker) { try { exportWorker.terminate(); } catch (e2) { /* ignore */ } exportWorker = null; }
-      alert("导出失败: " + err.message)
-      console.error(err)
-    } finally {
-      restoreAfterExport()
-    }
-  }
-
-
 
   $("fileInput").addEventListener("change", function (e) {
     const f = e.target.files[0]
@@ -1801,7 +1568,6 @@
       renderTimeline()
       reset()
     } catch (err) {
-      console.error(err)
       alert("载入示例失败")
     }
   })
@@ -1822,9 +1588,72 @@
         if (!state.bpmAnim) $("bpmPanel").classList.remove("flash")
       })
 
+        // 导出设置模态框：点导出弹出；选项联动；开始后走原导出进度流程
+        function syncExportModal() {
+          const bg = $("optBg").value
+          const fmt = $("optFmt").value
+          $("optPanel").disabled = bg === "black"
+          if (bg === "black") $("optPanel").checked = false
+          // Opus 只支持 48kHz
+          if (bg === "transparent" || bg === "pngseq") {
+            $("optSr").value = "48000"
+            $("optSr").disabled = true
+          } else {
+            $("optSr").disabled = false
+          }
+          const hints = {
+            black: "MP4（H.264 + AAC）",
+            transparent: "MOV（PNG RGBA + AAC），需浏览器支持WASM",
+            pngseq: "逐帧 PNG（含 alpha）打包 zip + 音频 WAV"
+          }
+          $("optHint").textContent = hints[bg] || hints.black
+
+          const sourceIsVideo = bg !== "pngseq"
+          const fmtSupportsAlpha = fmt === "source" || fmt === "mov" || fmt === "avi"
+          const srcHasAlpha = bg === "transparent" || bg === "pngseq"
+          let fmtHint = ""
+          if (fmt !== "source") {
+            if (!sourceIsVideo) {
+              fmtHint = "PNG 序列暂不支持自动格式转换，将直接下载原 zip"
+            } else if (srcHasAlpha && !fmtSupportsAlpha) {
+              fmtHint = "目标格式不支持透明通道，将自动填充黑底再转码"
+            } else if (srcHasAlpha && (fmt === "mov" || fmt === "avi")) {
+              fmtHint = "MOV/AVI 保留 alpha 通道；导出完成后进行格式转换，可中途取消"
+            } else {
+              fmtHint = "导出完成后进行格式转换；可中途取消"
+            }
+          }
+          $("fmtHint").textContent = fmtHint
+          if (fmtHint.includes("不支持")) $("fmtHint").style.color = "#fca5a5"
+          else $("fmtHint").style.color = ""
+        }
+
   $("exportBtn").addEventListener("click", function () {
-    if (state.exporting) cancelExport()
-    else startExport()
+    if (state.exporting) { cancelExport(); return }
+    syncExportModal()
+    $("exportModal").classList.add("open")
+  })
+
+      $("optBg").addEventListener("change", syncExportModal)
+      $("optFmt").addEventListener("change", syncExportModal)
+
+      $("modalCancelBtn").addEventListener("click", function () {
+        $("exportModal").classList.remove("open")
+      })
+
+      $("exportModal").addEventListener("click", function (e) {
+        if (e.target === $("exportModal")) $("exportModal").classList.remove("open")
+      })
+
+      $("modalGoBtn").addEventListener("click", function () {
+        $("exportModal").classList.remove("open")
+        startExport({
+          bg: $("optBg").value,
+          panelTransparent: $("optPanel").checked,
+          fps: parseInt($("optFps").value, 10),
+          sr: parseInt($("optSr").value, 10),
+          fmt: $("optFmt").value
+        })
   })
 
   $("speedSel").addEventListener("change", function (e) {
@@ -1873,7 +1702,7 @@
       timeline._hiddenIdx = idx
     }
 
-    // autoScroll=false：不回写 scrollLeft，避免和用户拖动互相打架
+    // autoScroll=false：不回写避免和拖动互相打架
     updatePlayhead(beatToSecond(beat, state.chart.bpmSegments), false)
   })
 
