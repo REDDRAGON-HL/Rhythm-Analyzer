@@ -205,7 +205,7 @@ function matchValue(computedValue) {
 
 function groupByNearestNeighbor(withBeat) {
   const n = withBeat.length
-  if (n === 0) return []
+  if (n == 0) return []
 
   // 计算左右间隔
   const rightGap = new Array(n).fill(null)
@@ -266,8 +266,15 @@ function parseChart(raw, opts) {
 
   const segs = buildBpmSegments(time)
 
-  // 转换拍数并排序
-  const sorted = taps.map(t => ({ beatVal: t.beatVal, column: t.column }))
+  // drag过滤
+  //   约定tap.noteType == 2 表示 drag 音
+  const SHOW_DRAG_DEFAULT = true
+  const showDrag = !(opts && opts.showDrag == false)
+  const TYPE_DRAG = 2
+  const filteredTaps = showDrag ? taps : taps.filter(t => t.noteType !== TYPE_DRAG)
+
+  // 转换拍数并排序，保留 noteType 供 notes 字段透传（用于将来渲染/统计）
+  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0 }))
     .sort((a, b) => a.beatVal - b.beatVal)
   const rawTapCount = sorted.length
 
@@ -276,8 +283,12 @@ function parseChart(raw, opts) {
   const withBeat = []
   for (const t of sorted) {
     const prev = withBeat[withBeat.length - 1]
-    if (prev && Math.abs(t.beatVal - prev.beatVal) <= DEDUP_EPS) prev.chordCount++
-    else withBeat.push({ beatVal: t.beatVal, column: t.column, chordCount: 1 })
+    if (prev && Math.abs(t.beatVal - prev.beatVal) <= DEDUP_EPS) {
+      prev.chordCount++
+      if (t.noteType == TYPE_DRAG) prev.hasDrag = true
+    } else {
+      withBeat.push({ beatVal: t.beatVal, column: t.column, chordCount: 1, noteType: t.noteType, hasDrag: (t.noteType == TYPE_DRAG) })
+    }
   }
 
   //   就近染色分组
@@ -289,9 +300,9 @@ function parseChart(raw, opts) {
 
     // 实际时值
     let actualValueInfo
-    if (i === withBeat.length - 1) {
+    if (i == withBeat.length - 1) {
       // 最后一个音统一归为4分
-      actualValueInfo = { ...LEGAL_VALUES.find(l => l.v === 4) }
+      actualValueInfo = { ...LEGAL_VALUES.find(l => l.v == 4) }
     } else {
       const delta = withBeat[i + 1].beatVal - cur.beatVal
       if (delta <= 0) {
@@ -309,7 +320,7 @@ function parseChart(raw, opts) {
 
     // 标签，标准音保留常规时值；非标准节奏显示与下一个音之间的实际间隔分数
     let beatLabel
-    if (i === withBeat.length - 1) {
+    if (i == withBeat.length - 1) {
       beatLabel = actualValueInfo.label
     } else {
       const delta = withBeat[i + 1].beatVal - cur.beatVal
@@ -325,7 +336,9 @@ function parseChart(raw, opts) {
       actualValueInfo,
       beatLabel,
       column: cur.column,
-      chordCount: cur.chordCount
+      chordCount: cur.chordCount,  // 多押数量
+      noteType: cur.noteType,      // 0 普通 / 2 drag
+      hasDrag: cur.hasDrag         // 同拍内是否含 drag
     })
   }
 
