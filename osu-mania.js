@@ -12,7 +12,7 @@
    ========================================================= */
 registerChartAdapter(
   "osu-mania",
-  (raw, kind) => kind === "osu" || (typeof raw === "string" && /^osu file format v\d/.test(raw)),
+  (raw, kind) => kind == "osu" || (typeof raw == "string" && /^osu file format v\d/.test(raw)),
   function (raw) {
     // 逐行分节解析
     const sections = {}
@@ -28,7 +28,7 @@ registerChartAdapter(
       if (!arr) return undefined
       for (const l of arr) {
         const i = l.indexOf(":")
-        if (l.slice(0, i).trim() === key) return l.slice(i + 1).trim()
+        if (l.slice(0, i).trim() == key) return l.slice(i + 1).trim()
       }
     }
 
@@ -42,7 +42,7 @@ registerChartAdapter(
       const bl = parseFloat(p[1])
       if (!isFinite(t) || !isFinite(bl)) continue
       if (bl <= 0) continue // inherited（负值 = 滚动倍率）
-      if (p.length >= 7 && p[6] === "0") continue // 显式标记 inherited
+      if (p.length >= 7 && p[6] == "0") continue // 显式标记 inherited
       // SV 用极端 beatLength 的假 uninherited 点做滚动效果（0.01~2ms 的
       //   "百万 BPM" 或 60000+ms 的假停顿）。真实音乐不会低于 6 或高于 6000 BPM，
       //   这类点直接丢弃，节拍按前后的真实 TP 换算
@@ -65,6 +65,8 @@ registerChartAdapter(
 
     // HitObjects：x,y,time,type,hitSound[,...]。TP 与音符都按时间升序 → 双指针定段
     const taps = []
+    const TYPE_TAP = 0
+    const TYPE_HOLD_TAIL = 2
     let si = 0
     for (const l of (sections.HitObjects || [])) {
       const p = l.split(",")
@@ -72,13 +74,24 @@ registerChartAdapter(
       const t = parseFloat(p[2])
       const type = parseInt(p[3], 10)
       if (!isFinite(t) || !isFinite(type)) continue
-      if ((type & 1) === 0 && (type & 128) === 0) continue // 只取 tap / hold
+      if ((type & 1) == 0 && (type & 128) == 0) continue // 只取 tap / hold
       while (si < segs.length - 1 && t >= segs[si + 1].t) si++
       const s = segs[si]
-      taps.push({
-        beatVal: s.beat + (t - s.t) / s.bl,
-        column: isFinite(x) ? Math.max(0, Math.min(keys - 1, Math.floor(x * keys / 512))) : 0
-      })
+      const col = isFinite(x) ? Math.max(0, Math.min(keys - 1, Math.floor(x * keys / 512))) : 0
+      const beatVal = s.beat + (t - s.t) / s.bl
+      taps.push({ beatVal, column: col, noteType: TYPE_TAP })
+      // hold 尾拍
+      if (type & 128 && p.length >= 5) {
+        const endPart = p[4].split(":")[0]
+        const endT = parseFloat(endPart)
+        if (isFinite(endT) && endT > t) {
+          let esi = si
+          while (esi < segs.length - 1 && endT >= segs[esi + 1].t) esi++
+          const es = segs[esi]
+          const endBeatVal = es.beat + (endT - es.t) / es.bl
+          taps.push({ beatVal: endBeatVal, column: col, noteType: TYPE_HOLD_TAIL })
+        }
+      }
     }
 
     return {

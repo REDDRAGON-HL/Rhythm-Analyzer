@@ -245,7 +245,7 @@ function groupByNearestNeighbor(withBeat) {
   return result
 }
 
-/* ==================== 格式适配器注册表（主程序预留接口） ==================== */
+/* =========== 格式适配器注册表（主程序预留接口） =========== */
 
 const chartAdapters = []
 
@@ -266,12 +266,15 @@ function parseChart(raw, opts) {
 
   const segs = buildBpmSegments(time)
 
-  // drag过滤
-  //   约定tap.noteType == 2 表示 drag 音
-  const SHOW_DRAG_DEFAULT = true
+  // drag长条尾部过滤
+  //   noteType：0=普通tap，1=drag，2=hold尾
+  const TYPE_DRAG = 1
+  const TYPE_HOLD_TAIL = 2
   const showDrag = !(opts && opts.showDrag == false)
-  const TYPE_DRAG = 2
-  const filteredTaps = showDrag ? taps : taps.filter(t => t.noteType !== TYPE_DRAG)
+  const showHoldTail = !(opts && opts.showHoldTail == false)
+  let filteredTaps = taps
+  if (!showDrag) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_DRAG)
+  if (!showHoldTail) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_HOLD_TAIL)
 
   // 转换拍数并排序，保留 noteType 供 notes 字段透传（用于将来渲染/统计）
   const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0 }))
@@ -286,8 +289,16 @@ function parseChart(raw, opts) {
     if (prev && Math.abs(t.beatVal - prev.beatVal) <= DEDUP_EPS) {
       prev.chordCount++
       if (t.noteType == TYPE_DRAG) prev.hasDrag = true
+      if (t.noteType == TYPE_HOLD_TAIL) prev.hasHoldTail = true
     } else {
-      withBeat.push({ beatVal: t.beatVal, column: t.column, chordCount: 1, noteType: t.noteType, hasDrag: (t.noteType == TYPE_DRAG) })
+      withBeat.push({
+        beatVal: t.beatVal,
+        column: t.column,
+        chordCount: 1,
+        noteType: t.noteType,
+        hasDrag: (t.noteType == TYPE_DRAG),
+        hasHoldTail: (t.noteType == TYPE_HOLD_TAIL)
+      })
     }
   }
 
@@ -338,15 +349,17 @@ function parseChart(raw, opts) {
       column: cur.column,
       chordCount: cur.chordCount,  // 多押数量
       noteType: cur.noteType,      // 0 普通 / 2 drag
-      hasDrag: cur.hasDrag         // 同拍内是否含 drag
+      hasDrag: cur.hasDrag,         // 同拍内是否含 drag
+      hasHoldTail: cur.hasHoldTail // 同拍内是否含 hold 尾
     })
   }
 
   const totalBeats = withBeat.length ? withBeat[withBeat.length - 1].beatVal : 0
-  //   谱面结尾 = 最后一个音所在小节+4小节
-  //   播放必须滚到这条小节线完全越过判定环之后才停，而不是停在最后一个音附近
-  const endBar = withBeat.length ? Math.ceil(totalBeats / 4) : 0
-  const chartEndBeat = (endBar + 4) * 4
+  const beatsPerBar = (opts && opts.beatsPerBar > 0) ? opts.beatsPerBar : 4
+  const beatUnit = (opts && opts.beatUnit > 0) ? opts.beatUnit : 4
+  const barBeats = beatsPerBar * 4 / beatUnit
+  const endBar = withBeat.length ? Math.ceil(totalBeats / barBeats) : 0
+  const chartEndBeat = (endBar + 4) * barBeats
   // 总时长按谱面结尾小节算
   const totalSeconds = withBeat.length ? beatToSecond(chartEndBeat, segs) : 0
   // 再加1拍余量：结尾小节线滚过判定环圆心后停下
@@ -358,6 +371,9 @@ function parseChart(raw, opts) {
     bpmSegments: segs,
     notes,
     totalBeats,
+    beatsPerBar,
+    beatUnit,
+    barBeats,
     chartEndBeat,
     playEndBeat,
     totalSeconds,

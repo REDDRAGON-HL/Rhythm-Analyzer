@@ -24,7 +24,9 @@ registerChartAdapter(
     const TICKS_PER_BEAT = 32
 
     // 收集全部note换算真实判定秒
-    const TYPE_DRAG = 2
+    const TYPE_TAP = 0
+    const TYPE_DRAG = 1
+    const TYPE_HOLD_TAIL = 2
     const notes = []   // { sec, ticks, bpm, column, noteType }
     for (const line of raw.judgeLineList) {
       if (!line || typeof line.bpm !== "number" || line.bpm <= 0) continue
@@ -32,13 +34,20 @@ registerChartAdapter(
         if (!Array.isArray(list)) continue
         for (const n of list) {
           if (!n || typeof n.time !== "number") continue
-          notes.push({
-            sec: n.time / TICKS_PER_BEAT * 60 / line.bpm,
-            ticks: n.time,
-            bpm: line.bpm,
-            column: n.positionX,
-            noteType: (typeof n.type == "number" && n.type == TYPE_DRAG) ? TYPE_DRAG : 0
-          })
+          const ntype = typeof n.type == "number" ? n.type : 1
+          const headSec = n.time / TICKS_PER_BEAT * 60 / line.bpm
+          if (ntype === 2) {
+            notes.push({ sec: headSec, ticks: n.time, bpm: line.bpm, column: n.positionX, noteType: TYPE_DRAG })
+          } else {
+            notes.push({ sec: headSec, ticks: n.time, bpm: line.bpm, column: n.positionX, noteType: TYPE_TAP })
+          }
+          if (ntype === 3 && typeof n.holdTime == "number" && n.holdTime > 0) {
+            const endTicks = n.time + n.holdTime
+            const endSec = endTicks / TICKS_PER_BEAT * 60 / line.bpm
+            if (endSec > headSec) {
+              notes.push({ sec: endSec, ticks: endTicks, bpm: line.bpm, column: n.positionX, noteType: TYPE_HOLD_TAIL })
+            }
+          }
         }
       }
     }

@@ -38,12 +38,12 @@ async function processQueue() {
 }
 
 async function handleMessage(msg) {
-  if (msg.type === "init") {
+  if (msg.type == "init") {
     container = msg.container || "mp4"
 
     // 视频编码配置
     let vConfig = null
-    if (container === "webm") {
+    if (container == "webm") {
       vConfig = {
         codec: "vp09.00.10.08",
         width: msg.width,
@@ -75,7 +75,7 @@ async function handleMessage(msg) {
     // 音频编码配置
     let audioOk = false
     if (msg.audio) {
-      const aConfig = container === "webm"
+      const aConfig = container == "webm"
         ? { codec: "opus", sampleRate: 48000, numberOfChannels: msg.audio.channels, bitrate: 192000 }
         : { codec: "mp4a.40.2", sampleRate: msg.audio.sampleRate, numberOfChannels: msg.audio.channels, bitrate: 192000 }
       const aSupport = await AudioEncoder.isConfigSupported(aConfig)
@@ -90,7 +90,7 @@ async function handleMessage(msg) {
       }
     }
 
-    muxer = container === "webm"
+    muxer = container == "webm"
       ? new WebMMuxer.Muxer({
         target: new WebMMuxer.ArrayBufferTarget(),
         video: { codec: "V_VP9", width: msg.width, height: msg.height },
@@ -119,7 +119,7 @@ async function handleMessage(msg) {
     return
   }
 
-  if (msg.type === "frame") {
+  if (msg.type == "frame") {
     // 背压
     while (videoEncoder.encodeQueueSize > 8) {
       await new Promise((r) => setTimeout(r, 4))
@@ -130,20 +130,20 @@ async function handleMessage(msg) {
     return
   }
 
-  if (msg.type === "flush-video") {
+  if (msg.type == "flush-video") {
     await videoEncoder.flush()
     postMessage({ type: "video-done" })
     return
   }
 
-  if (msg.type === "audio") {
+  if (msg.type == "audio") {
     if (audioEncoder) audioEncoder.encode(msg.data)
     msg.data.close()
     postMessage({ type: "ack" })
     return
   }
 
-  if (msg.type === "finish") {
+  if (msg.type == "finish") {
     if (audioEncoder) await audioEncoder.flush()
     muxer.finalize()
     // 整个成品 buffer 转移回主线程

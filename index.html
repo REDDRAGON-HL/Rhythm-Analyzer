@@ -278,6 +278,85 @@
     color: #60a5fa;
   }
 
+  .time-sig-card .info-value {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    color: #c084fc;
+  }
+
+  .time-sig-card input[type="number"] {
+    width: 38px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #c084fc;
+    font-size: 17px;
+    font-weight: 700;
+    padding: 2px 2px;
+    border-radius: 4px;
+    text-align: center;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+  }
+
+  .time-sig-card input[type="number"]::-webkit-outer-spin-button,
+  .time-sig-card input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .time-sig-card input[type="number"]:focus {
+    outline: none;
+    border-color: #c084fc;
+  }
+
+  .time-sig-slash {
+    font-size: 16px;
+    font-weight: 700;
+    color: #c084fc;
+    margin: 0 1px;
+  }
+
+  .subdiv-card .info-value {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    color: #34d399;
+  }
+
+  .subdiv-card input[type="number"] {
+    width: 38px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #34d399;
+    font-size: 17px;
+    font-weight: 700;
+    padding: 2px 2px;
+    border-radius: 4px;
+    text-align: center;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+  }
+
+  .subdiv-card input[type="number"]::-webkit-outer-spin-button,
+  .subdiv-card input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .subdiv-card input[type="number"]:focus {
+    outline: none;
+    border-color: #34d399;
+  }
+
+  .subdiv-suffix {
+    font-size: 16px;
+    font-weight: 700;
+    color: #34d399;
+  }
+
   .chart-area {
     position: relative;
     padding: 24px 0 0;
@@ -810,6 +889,25 @@
         <div class="info-value" id="noteCount">0</div>
       </div>
     </div>
+    <div class="info-card time-sig-card">
+      <div>
+        <div class="info-label">拍号</div>
+        <div class="info-value">
+          <input type="number" id="beatsPerBarInput" min="1" max="32" step="1" value="4">
+          <span class="time-sig-slash">/</span>
+          <input type="number" id="beatUnitInput" min="1" max="32" step="1" value="4">
+        </div>
+      </div>
+    </div>
+    <div class="info-card subdiv-card">
+      <div>
+        <div class="info-label">细分</div>
+        <div class="info-value">
+          <input type="number" id="subdivisionInput" min="1" max="16" step="1" value="4">
+          <span class="subdiv-suffix">分</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="chart-area">
@@ -935,7 +1033,6 @@
     </div>
   </div>
 
-  <!-- 导出设置模态框：点导出弹出，选择后开始走原导出流程 -->
   <div class="modal-mask" id="exportModal">
     <div class="modal">
       <h3>导出设置</h3>
@@ -992,6 +1089,7 @@
 <script src="osu-mania.js"></script>
 <script src="phi-rpe.js"></script>
 <script src="phi-official.js"></script>
+<script src="rizline.js"></script>
 <script src="chart-export.js"></script>
 <script>
   let state = {
@@ -1008,6 +1106,10 @@
     exporting: false,   // 是否正在导出视频
     showChords: false,  // 显示多押开关
     showDrag: (function () { try { return localStorage.getItem("showDrag") !== "0" } catch (_) { return true } })(),
+    showHoldTail: (function () { try { return localStorage.getItem("showHoldTail") !== "0" } catch (_) { return true } })(),
+    beatsPerBar: 4,
+    beatUnit: 4,
+    subdivision: 4,
     bpmAnim: true,      // BPM 动画开关
     _parseRaw: undefined, // 最近一次解析的原始数据, 用于切换 drag 开关后就地重解析
     _parseKind: undefined // 最近一次解析的格式 kind
@@ -1101,6 +1203,7 @@
     $("pauseBtn").disabled = true
     $("resetBtn").disabled = true
     $("dragBtn").disabled = true
+    $("holdTailBtn").disabled = true
     $("chordBtn").disabled = true
     $("bpmAnimBtn").disabled = true
     $("exportBtn").disabled = true
@@ -1222,6 +1325,7 @@
     $("pauseBtn").disabled = true
     $("resetBtn").disabled = true
     $("dragBtn").disabled = true
+    $("holdTailBtn").disabled = true
     $("chordBtn").disabled = true
     $("bpmAnimBtn").disabled = true
     $("exportBtn").disabled = true
@@ -1266,24 +1370,32 @@
     timeline.style.minWidth = widthPx + "px"
 
     // 小节线
-    const beatsPerBar = 4
-    const firstBar = Math.floor(minBeat / beatsPerBar)
-    const lastBar = Math.ceil(maxBeat / beatsPerBar)
+    const beatUnit = chart.beatUnit || 4
+    const beatStep = 4 / beatUnit
+    const subStep = beatStep / state.subdivision
+    const barBeats = chart.barBeats || 4
+    const firstBar = Math.floor(minBeat / barBeats)
+    const lastBar = Math.ceil(maxBeat / barBeats)
 
     // 画拍线
-    for (let beat = Math.ceil(minBeat); beat <= maxBeat; beat++) {
-      const isBar = (beat % beatsPerBar == 0)
+    {
+      const startN = Math.ceil(minBeat / beatStep)
+      const endN = Math.floor(maxBeat / beatStep)
+      for (let n = startN; n <= endN; n++) {
+        const beat = n * beatStep
+        const isBar = Math.abs(beat / barBeats - Math.round(beat / barBeats)) < 1e-6
       if (isBar) continue
       const x = (beat - minBeat) * ppb
       const bl = document.createElement("div")
       bl.className = "bar-line beat"
       bl.style.left = x + "px"
       timeline.appendChild(bl)
+      }
     }
 
     // 画小节线
     for (let b = firstBar; b <= lastBar; b++) {
-      const barBeat = b * beatsPerBar
+      const barBeat = b * barBeats
       if (barBeat < minBeat - 0.01 || barBeat > maxBeat + 0.01) continue
       const x = (barBeat - minBeat) * ppb
       const isHeavy = (b % 2 == 0)
@@ -1299,14 +1411,20 @@
       timeline.appendChild(lbl)
     }
 
-    // 画细分线
-    for (let beat = minBeat; beat <= maxBeat; beat += 0.25) {
-      if (Math.abs(beat - Math.round(beat)) < 0.0001) continue
+    // 2) 画细分线
+    {
+      const startN = Math.ceil(minBeat / subStep)
+      const endN = Math.floor(maxBeat / subStep)
+      for (let n = startN; n <= endN; n++) {
+        const beat = n * subStep
+        const isBeat = Math.abs(beat / beatStep - Math.round(beat / beatStep)) < 1e-6
+        if (isBeat) continue
       const x = (beat - minBeat) * ppb
       const sl = document.createElement("div")
       sl.className = "sub-line"
       sl.style.left = x + "px"
       timeline.appendChild(sl)
+      }
     }
 
     // 变速标记线
@@ -1377,6 +1495,7 @@
     $("pauseBtn").disabled = true
     $("resetBtn").disabled = false
     $("dragBtn").disabled = false
+    $("holdTailBtn").disabled = false
     $("chordBtn").disabled = false
     $("bpmAnimBtn").disabled = false
     $("exportBtn").disabled = false
@@ -1550,7 +1669,7 @@
         // 扩展名传给解析器分发格式
         const ext = (f.name.split(".").pop() || "").toLowerCase()
         state._parseRaw = raw; state._parseKind = ext
-        const chart = parseChart(raw, { kind: ext, showDrag: state.showDrag })
+        const chart = parseChart(raw, { kind: ext, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) {
           alert("未在谱面中找到note！")
           return
@@ -1575,7 +1694,7 @@
       let raw
       try { raw = JSON.parse(text) } catch (e) { raw = text }
       state._parseRaw = raw; state._parseKind = undefined
-      const chart = parseChart(raw, { showDrag: state.showDrag })
+      const chart = parseChart(raw, { showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
       state.chart = chart
       renderTimeline()
       reset()
@@ -1589,7 +1708,7 @@
   $("resetBtn").addEventListener("click", reset)
   $("bpmAnimBtn").classList.toggle("active", state.bpmAnim)
   $("dragBtn").classList.toggle("active", state.showDrag)
-
+        $("holdTailBtn").classList.toggle("active", state.showHoldTail)
   $("chordBtn").classList.toggle("active", state.showChords)
   document.body.classList.toggle("show-chords", state.showChords)
 
@@ -1601,7 +1720,7 @@
     // 如果当前有谱面数据用解析时保存的raw+kind重跑parseChart
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1612,6 +1731,98 @@
       }
     }
   })
+
+      // 长条尾部开关
+      $("holdTailBtn").addEventListener("click", function () {
+        state.showHoldTail = !state.showHoldTail
+        $("holdTailBtn").classList.toggle("active", state.showHoldTail)
+        try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
+        if (state._parseRaw !== undefined) {
+          try {
+            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+            if (!chart.notes.length) return
+            pause()
+            state.chart = chart
+            renderTimeline()
+            reset()
+          } catch (err) {
+            console.error("长条尾部切换重解析失败:", err)
+          }
+        }
+      })
+
+      // 拍号切换
+      $("beatsPerBarInput").value = state.beatsPerBar
+      $("beatUnitInput").value = state.beatUnit
+      function applyBeatsPerBar() {
+        const input = $("beatsPerBarInput")
+        let val = parseInt(input.value)
+        if (!val || val < 1) val = 4
+        if (val > 32) val = 32
+        input.value = val
+        if (val == state.beatsPerBar) return
+        state.beatsPerBar = val
+        if (state._parseRaw !== undefined) {
+          try {
+            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+            if (!chart.notes.length) return
+            pause()
+            state.chart = chart
+            renderTimeline()
+            reset()
+          } catch (err) {
+            console.error("拍号切换重解析失败:", err)
+          }
+        }
+      }
+      function applyBeatUnit() {
+        const input = $("beatUnitInput")
+        let val = parseInt(input.value)
+        if (!val || val < 1) val = 4
+        if (val > 32) val = 32
+        input.value = val
+        if (val == state.beatUnit) return
+        state.beatUnit = val
+        if (state._parseRaw !== undefined) {
+          try {
+            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+            if (!chart.notes.length) return
+            pause()
+            state.chart = chart
+            renderTimeline()
+            reset()
+          } catch (err) {
+            console.error("拍号切换重解析失败:", err)
+          }
+        }
+      }
+      $("beatsPerBarInput").addEventListener("blur", applyBeatsPerBar)
+      $("beatsPerBarInput").addEventListener("keydown", function (e) {
+        if (e.key == "Enter") { e.preventDefault(); this.blur() }
+      })
+      $("beatUnitInput").addEventListener("blur", applyBeatUnit)
+      $("beatUnitInput").addEventListener("keydown", function (e) {
+        if (e.key == "Enter") { e.preventDefault(); this.blur() }
+      })
+
+      // 细分线数量
+      $("subdivisionInput").value = state.subdivision
+      function applySubdivision() {
+        const input = $("subdivisionInput")
+        let val = parseInt(input.value)
+        if (!val || val < 1) val = 4
+        if (val > 16) val = 16
+        input.value = val
+        if (val == state.subdivision) return
+        state.subdivision = val
+        if (state.chart) {
+          renderTimeline()
+        }
+      }
+      $("subdivisionInput").addEventListener("blur", applySubdivision)
+      $("subdivisionInput").addEventListener("keydown", function (e) {
+        if (e.key == "Enter") { e.preventDefault(); this.blur() }
+      })
 
   $("chordBtn").addEventListener("click", function () {
     state.showChords = !state.showChords

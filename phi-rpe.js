@@ -11,11 +11,26 @@ registerChartAdapter(
   raw => !!raw && typeof raw == "object" && Array.isArray(raw.judgeLineList) && Array.isArray(raw.BPMList),
   function (raw) {
     const taps = []
+    const TYPE_TAP = 0
+    const TYPE_DRAG = 1
+    const TYPE_HOLD_TAIL = 2
     for (const line of raw.judgeLineList) {
       if (!line || !Array.isArray(line.notes)) continue
       for (const n of line.notes) {
         if (!n || n.isFake) continue
-        taps.push({ beatVal: beatToVal(n.startTime), column: n.positionX })
+        const startBeat = beatToVal(n.startTime)
+        const ntype = typeof n.type == "number" ? n.type : 1
+        if (ntype === 3) {
+          taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_TAP })
+          const endBeat = beatToVal(n.endTime)
+          if (endBeat > startBeat) {
+            taps.push({ beatVal: endBeat, column: n.positionX, noteType: TYPE_HOLD_TAIL })
+          }
+        } else if (ntype === 2) {
+          taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_DRAG })
+        } else {
+          taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_TAP })
+        }
       }
     }
     const offsetMs = (raw.META && typeof raw.META.offset == "number")

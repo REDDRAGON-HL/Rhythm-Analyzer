@@ -73,11 +73,11 @@ function rejectExportWaiters(err) {
 function attachExportWorker(onError) {
   exportWorker.onmessage = function (e) {
     const d = e.data
-    if (d.type === "ack") {
+    if (d.type == "ack") {
       exportPendingAcks = Math.max(0, exportPendingAcks - 1)
-    } else if (d.type === "warn") {
+    } else if (d.type == "warn") {
       console.warn("导出:", d.message)
-    } else if (d.type === "error") {
+    } else if (d.type == "error") {
       const err = new Error(d.message)
       onError(err)
       rejectExportWaiters(err)
@@ -271,7 +271,7 @@ async function exportPngSequence(chart, outputDur) {
     drawExportFrame((k / EXPORT_FPS) * speed)
     const blob = await new Promise(r => exportCanvas.toBlob(r, "image/png"))
     files.push({ name: "frame_" + String(k).padStart(5, "0") + ".png", data: new Uint8Array(await blob.arrayBuffer()) })
-    if (k % 10 === 0) {
+    if (k % 10 == 0) {
       $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%"
       await new Promise(r => setTimeout(r, 0))
     }
@@ -336,7 +336,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       if (inst._lastLogs && inst._lastLogs.length > 40) {
         inst._lastLogs.splice(0, inst._lastLogs.length - 40)
       }
-      if (type === "error" || type === "warn") {
+      if (type == "error" || type == "warn") {
         console.log(line)
       } else if (message && (
         message.indexOf("Error") !== -1 ||
@@ -361,8 +361,8 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
     console.log("[ffmpeg " + stageLabel + "] ffmpeg " + argsStr)
     const res = await inst.exec(args)
     let exitCode
-    if (typeof res === "number") exitCode = res
-    else if (res && typeof res.exitCode === "number") exitCode = res.exitCode
+    if (typeof res == "number") exitCode = res
+    else if (res && typeof res.exitCode == "number") exitCode = res.exitCode
     else exitCode = 0
     if (exitCode !== 0) {
       const lastLogs = (inst && inst._lastLogs) ? inst._lastLogs.join("\n") : ""
@@ -375,13 +375,13 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
 
   const deleteFile = async (inst, path) => {
     try {
-      if (typeof inst.deleteFile === 'function') await inst.deleteFile(path)
+      if (typeof inst.deleteFile == 'function') await inst.deleteFile(path)
     } catch (_) { }
   }
 
   const toErr = (e) => {
     if (e instanceof Error) return e
-    const msg = (e && e.message) || (typeof e === 'string' ? e : String(e)) || '未知错误'
+    const msg = (e && e.message) || (typeof e == 'string' ? e : String(e)) || '未知错误'
     return new Error(msg)
   }
 
@@ -401,7 +401,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
         const fname = "frame_" + String(idx).padStart(5, "0") + ".png"
         await inst.writeFile(fname, u8)
 
-        if (idx % 5 === 0) {
+        if (idx % 5 == 0) {
           const prog = Math.min(75, Math.round((idx + 1) / totalFrames * 75))
           $("exportBtn").textContent = prog + "% 渲染帧 " + (idx + 1) + "/" + totalFrames
           await new Promise(r => setTimeout(r, 0))
@@ -485,18 +485,18 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
     // 按需格式转换
     $("exportBtn").textContent = "导出中… 98% 输出文件"
     await new Promise(r => setTimeout(r, 0))
-    if (!finalU8 || finalU8.length === 0) throw new Error("最终产物为空")
+    if (!finalU8 || finalU8.length == 0) throw new Error("最终产物为空")
     let blob = new Blob([finalU8], { type: "video/quicktime" })
     finalU8 = null
     // 转码（保持源格式时此函数立即原样返回）
     blob = await postProcessConvert(blob, exportFmt, true)
     if (exportCancelFlag) return
     const outExt =
-      exportFmt === "mp4" ? "mp4" :
-        exportFmt === "mov" ? "mov" :
-          exportFmt === "mkv" ? "mkv" :
-            exportFmt === "avi" ? "avi" :
-              exportFmt === "webm8" || exportFmt === "webm9" ? "webm" :
+      exportFmt == "mp4" ? "mp4" :
+        exportFmt == "mov" ? "mov" :
+          exportFmt == "mkv" ? "mkv" :
+            exportFmt == "avi" ? "avi" :
+              exportFmt == "webm8" || exportFmt == "webm9" ? "webm" :
                 "mov"
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
@@ -512,7 +512,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
 
 // 格式转换
 async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
-  if (targetFmt === "source"
+  if (targetFmt == "source"
     || !srcBlob || !srcBlob.type
     || !srcBlob.type.startsWith("video/")) {
     return srcBlob
@@ -531,8 +531,8 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
     console.log("[convert " + stageLabel + "] ffmpeg " + argsStr)
     const res = await ffmpeg.exec(args)
     let exitCode
-    if (typeof res === "number") exitCode = res
-    else if (res && typeof res.exitCode === "number") exitCode = res.exitCode
+    if (typeof res == "number") exitCode = res
+    else if (res && typeof res.exitCode == "number") exitCode = res.exitCode
     else exitCode = 0
     if (exitCode !== 0) {
       const lastLogs = (ffmpeg._lastLogs || []).join("\n")
@@ -557,7 +557,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
       if (ffmpeg._lastLogs && ffmpeg._lastLogs.length > 40) {
         ffmpeg._lastLogs.splice(0, ffmpeg._lastLogs.length - 40)
       }
-      if (type === "error" || type === "warn") console.log(line)
+      if (type == "error" || type == "warn") console.log(line)
       else if (message && (
         message.indexOf("Error") !== -1 || message.indexOf("error") !== -1 ||
         message.indexOf("Invalid") !== -1 || message.indexOf("Failed") !== -1 ||
@@ -572,8 +572,8 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
 
     // 按源MIME写入正确扩展名
     const srcExt =
-      (srcBlob.type === "video/mp4") ? "mp4" :
-        (srcBlob.type === "video/quicktime") ? "mov" :
+      (srcBlob.type == "video/mp4") ? "mp4" :
+        (srcBlob.type == "video/quicktime") ? "mov" :
           "webm"
     const srcName = "src." + srcExt
     const srcU8 = new Uint8Array(await srcBlob.arrayBuffer())
@@ -584,9 +584,9 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
     //   avi→PNG codec in AVI (pix_fmt bgra)
     //   mp4/mkv→不支持alpha
     const keepAlpha = srcHasAlpha &&
-      (targetFmt === "mov" || targetFmt === "avi")
+      (targetFmt == "mov" || targetFmt == "avi")
     let outName, args
-    if (targetFmt === "webm8" || targetFmt === "webm9") {
+    if (targetFmt == "webm8" || targetFmt == "webm9") {
       // 有病吧webm还留在这
       return srcBlob
     }
@@ -680,14 +680,14 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
       throw new Error("转码产物为空\n---- 最近日志 ----\n" + (lastLogs || "(无日志)"))
     }
     const mime =
-      targetFmt === "mp4" ? "video/mp4" :
-        targetFmt === "mov" ? "video/mp4" :
-          targetFmt === "mkv" ? "video/x-matroska" :
-            targetFmt === "avi" ? "video/x-msvideo" :
+      targetFmt == "mp4" ? "video/mp4" :
+        targetFmt == "mov" ? "video/mp4" :
+          targetFmt == "mkv" ? "video/x-matroska" :
+            targetFmt == "avi" ? "video/x-msvideo" :
               "video/webm"
     return new Blob([new Uint8Array(r)], { type: mime })
   } catch (e) {
-    const msg = (e && e.message) || (typeof e === 'string' ? e : String(e)) || '未知错误'
+    const msg = (e && e.message) || (typeof e == 'string' ? e : String(e)) || '未知错误'
     console.error("格式转换失败：", e)
     alert("格式转换失败：" + msg + "\n已回退下载原格式文件")
     return srcBlob
@@ -748,29 +748,49 @@ function drawExportFrame(sec) {
   const bMin = beat - (judgeX + 20) / ppb
   const bMax = beat + (W + 20) / ppb
 
-  // 画线
+  // 拍号
+  const beatUnit = chart.beatUnit || 4
+  const beatStep = 4 / beatUnit
+  const subStep = beatStep / (state.subdivision || 4)
+  const barBeats = chart.barBeats || 4
+
+  // 线
   ctx.fillStyle = "rgba(255,255,255,0.06)"
-  for (let b = Math.ceil(bMin * 4) / 4; b <= bMax; b += 0.25) {
-    if (Math.abs(b - Math.round(b)) < 0.0001) continue
-    ctx.fillRect(Math.round(xOf(b)), y0 + 40, 1, 60)
+  {
+    const startN = Math.ceil(bMin / subStep)
+    const endN = Math.floor(bMax / subStep)
+    for (let n = startN; n <= endN; n++) {
+      const b = n * subStep
+      const isBeat = Math.abs(b / beatStep - Math.round(b / beatStep)) < 1e-6
+      if (isBeat) continue
+      ctx.fillRect(Math.round(xOf(b)), y0 + 40, 1, 60)
+    }
   }
   ctx.fillStyle = "rgba(255,255,255,0.2)"
-  for (let b = Math.ceil(bMin); b <= bMax; b++) {
-    if (b % 4 === 0) continue
+  {
+    const startN = Math.ceil(bMin / beatStep)
+    const endN = Math.floor(bMax / beatStep)
+    for (let n = startN; n <= endN; n++) {
+      const b = n * beatStep
+      const isBar = Math.abs(b / barBeats - Math.round(b / barBeats)) < 1e-6
+      if (isBar) continue
     ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
+  }
   }
   ctx.font = "700 13px " + EXPORT_FONT()
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  for (let bar = Math.ceil(bMin / 4); bar <= Math.floor(bMax / 4); bar++) {
-    const x = Math.round(xOf(bar * 4))
-    ctx.fillStyle = bar % 2 === 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+  const firstBar = Math.ceil(bMin / barBeats)
+  const lastBar = Math.floor(bMax / barBeats)
+  for (let bar = firstBar; bar <= lastBar; bar++) {
+    const x = Math.round(xOf(bar * barBeats))
+    ctx.fillStyle = bar % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
     ctx.fillRect(x, y0 + 32, 1, 76)
     ctx.fillStyle = "rgba(255,255,255,0.75)"
     ctx.fillText(String(bar), x, y0 + 14)
   }
   chart.bpmSegments.forEach(function (s, i) {
-    if (i === 0) return
+    if (i == 0) return
     const x = Math.round(xOf(s.startBeat))
     if (x < -5 || x > W + 5) return
     ctx.strokeStyle = "rgba(77,224,255,0.9)"
@@ -911,10 +931,10 @@ async function startExport(cfg) {
   exportFmt = c.fmt || "source"
   exportPanelT = !!c.panelTransparent && exportBg !== "black"
   EXPORT_FPS = c.fps || 60
-  EXPORT_SR = (exportBg === "transparent" || exportBg === "pngseq") ? 48000 : (c.sr || 48000)
-  const isWebm = exportBg === "transparent"
+  EXPORT_SR = (exportBg == "transparent" || exportBg == "pngseq") ? 48000 : (c.sr || 48000)
+  const isWebm = exportBg == "transparent"
 
-  if (exportBg === "black" && (!window.VideoEncoder || !window.AudioEncoder)) {
+  if (exportBg == "black" && (!window.VideoEncoder || !window.AudioEncoder)) {
     alert("当前浏览器不支持 MP4 导出（缺少 WebCodecs）\n可尝试透明 MOV PNG 或 PNG 序列导出，或换用 Chrome/Edge 94+")
     return
   }
@@ -937,7 +957,7 @@ async function startExport(cfg) {
 
   try {
     // 透明mov，ffmpeg.wasm单实例一次性编码
-    if (exportBg === "transparent") {
+    if (exportBg == "transparent") {
       setupExportCanvas()
       const mixed = await mixExportAudio(outputDur)
       if (exportCancelFlag) return
@@ -946,7 +966,7 @@ async function startExport(cfg) {
     }
 
     // png序列，逐帧toBlob+wav打包zip
-    if (exportBg === "pngseq") {
+    if (exportBg == "pngseq") {
       setupExportCanvas()
       await exportPngSequence(chart, outputDur)
       return
@@ -985,12 +1005,12 @@ async function startExport(cfg) {
       })
       exportPendingAcks++
       exportWorker.postMessage(
-        { type: "frame", frame, keyFrame: k % KEY_INT === 0 },
+        { type: "frame", frame, keyFrame: k % KEY_INT == 0 },
         [frame]
       )
       await awaitExportAcks()
       // 定期让出主线程更新进度
-      if (k % 30 === 0) {
+      if (k % 30 == 0) {
         $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%（点击取消）"
         await new Promise((r) => setTimeout(r, 0))
       }
@@ -1024,11 +1044,11 @@ async function startExport(cfg) {
     blob = await postProcessConvert(blob, exportFmt, /* srcHasAlpha */ exportBg !== "black")
     if (exportCancelFlag) return
     const outExt =
-      exportFmt === "mp4" ? "mp4" :
-        exportFmt === "mov" ? "mov" :
-          exportFmt === "mkv" ? "mkv" :
-            exportFmt === "avi" ? "avi" :
-              (exportFmt === "webm8" || exportFmt === "webm9") ? "webm" :
+      exportFmt == "mp4" ? "mp4" :
+        exportFmt == "mov" ? "mov" :
+          exportFmt == "mkv" ? "mkv" :
+            exportFmt == "avi" ? "avi" :
+              (exportFmt == "webm8" || exportFmt == "webm9") ? "webm" :
                 (isWebm ? "webm" : "mp4")
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
@@ -1038,7 +1058,7 @@ async function startExport(cfg) {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000)
   } catch (err) {
     if (exportWorker) { try { exportWorker.terminate(); } catch (e2) { /* ignore */ } exportWorker = null; }
-    const msg = (err && err.message) || (typeof err === 'string' ? err : String(err)) || '未知错误'
+    const msg = (err && err.message) || (typeof err == 'string' ? err : String(err)) || '未知错误'
     alert("导出失败: " + msg)
     console.error("导出失败：", err)
   } finally {
