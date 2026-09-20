@@ -1,4 +1,4 @@
-﻿﻿<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -939,6 +939,7 @@
         <option value="4">4.0x</option>
       </select>
       <button id="dragBtn" class="active">显示 drag</button>
+      <button id="holdTailBtn" class="active">显示长条尾部</button>
       <button id="chordBtn">显示多押</button>
       <button id="bpmAnimBtn" class="active" title="bpm切换时动效开关">BPM动效</button>
       <button id="exportBtn" disabled title="逐帧渲染导出视频">导出</button>
@@ -1305,55 +1306,6 @@
     $("fontLabel").firstChild.textContent = "导入字体 "
   })
 
-  function unloadChart() {
-    if (state.exporting) return
-    state.playing = false
-    stopSong()
-    cancelAnimationFrame(state.rafId)
-    state.chart = null
-    state.curSec = 0
-    state.playFromSec = 0
-    state.wallStartPerf = 0
-    const timeline = $("timeline")
-    timeline.innerHTML = ""
-    timeline.style.display = "none"
-    $("emptyState").style.display = ""
-    $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(0)
-    $("beatVal").textContent = "0.00"
-    $("noteCount").textContent = "0"
-    $("playBtn").disabled = true
-    $("pauseBtn").disabled = true
-    $("resetBtn").disabled = true
-    $("dragBtn").disabled = true
-    $("holdTailBtn").disabled = true
-    $("chordBtn").disabled = true
-    $("bpmAnimBtn").disabled = true
-    $("exportBtn").disabled = true
-    $("fileLabel").firstChild.textContent = "加载谱面 "
-  }
-
-  $("fileLabel").addEventListener("contextmenu", function (e) {
-    e.preventDefault()
-    unloadChart()
-  })
-
-  $("songLabel").addEventListener("contextmenu", function (e) {
-    e.preventDefault()
-    if (songAudio) {
-      stopSong()
-      URL.revokeObjectURL(songAudio.src)
-      songAudio = null
-    }
-    $("songLabel").firstChild.textContent = "加载音乐 "
-  })
-
-  $("hitLabel").addEventListener("contextmenu", function (e) {
-    e.preventDefault()
-    hitPool = []
-    hitPoolIdx = 0
-    $("hitLabel").firstChild.textContent = "加载打击音 "
-  })
-
   function renderTimeline() {
     const chart = state.chart
     if (!chart) return
@@ -1708,7 +1660,7 @@
   $("resetBtn").addEventListener("click", reset)
   $("bpmAnimBtn").classList.toggle("active", state.bpmAnim)
   $("dragBtn").classList.toggle("active", state.showDrag)
-        $("holdTailBtn").classList.toggle("active", state.showHoldTail)
+  $("holdTailBtn").classList.toggle("active", state.showHoldTail)
   $("chordBtn").classList.toggle("active", state.showChords)
   document.body.classList.toggle("show-chords", state.showChords)
 
@@ -1732,97 +1684,97 @@
     }
   })
 
-      // 长条尾部开关
-      $("holdTailBtn").addEventListener("click", function () {
-        state.showHoldTail = !state.showHoldTail
-        $("holdTailBtn").classList.toggle("active", state.showHoldTail)
-        try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
-        if (state._parseRaw !== undefined) {
-          try {
-            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
-            if (!chart.notes.length) return
-            pause()
-            state.chart = chart
-            renderTimeline()
-            reset()
-          } catch (err) {
-            console.error("长条尾部切换重解析失败:", err)
-          }
-        }
-      })
+  // 长条尾部开关
+  $("holdTailBtn").addEventListener("click", function () {
+    state.showHoldTail = !state.showHoldTail
+    $("holdTailBtn").classList.toggle("active", state.showHoldTail)
+    try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
+    if (state._parseRaw !== undefined) {
+      try {
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        if (!chart.notes.length) return
+        pause()
+        state.chart = chart
+        renderTimeline()
+        reset()
+      } catch (err) {
+        console.error("长条尾部切换重解析失败:", err)
+      }
+    }
+  })
 
-      // 拍号切换
-      $("beatsPerBarInput").value = state.beatsPerBar
-      $("beatUnitInput").value = state.beatUnit
-      function applyBeatsPerBar() {
-        const input = $("beatsPerBarInput")
-        let val = parseInt(input.value)
-        if (!val || val < 1) val = 4
-        if (val > 32) val = 32
-        input.value = val
-        if (val == state.beatsPerBar) return
-        state.beatsPerBar = val
-        if (state._parseRaw !== undefined) {
-          try {
-            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
-            if (!chart.notes.length) return
-            pause()
-            state.chart = chart
-            renderTimeline()
-            reset()
-          } catch (err) {
-            console.error("拍号切换重解析失败:", err)
-          }
-        }
+  // 拍号切换
+  $("beatsPerBarInput").value = state.beatsPerBar
+  $("beatUnitInput").value = state.beatUnit
+  function applyBeatsPerBar() {
+    const input = $("beatsPerBarInput")
+    let val = parseInt(input.value)
+    if (!val || val < 1) val = 4
+    if (val > 32) val = 32
+    input.value = val
+    if (val == state.beatsPerBar) return
+    state.beatsPerBar = val
+    if (state._parseRaw !== undefined) {
+      try {
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        if (!chart.notes.length) return
+        pause()
+        state.chart = chart
+        renderTimeline()
+        reset()
+      } catch (err) {
+        console.error("拍号切换重解析失败:", err)
       }
-      function applyBeatUnit() {
-        const input = $("beatUnitInput")
-        let val = parseInt(input.value)
-        if (!val || val < 1) val = 4
-        if (val > 32) val = 32
-        input.value = val
-        if (val == state.beatUnit) return
-        state.beatUnit = val
-        if (state._parseRaw !== undefined) {
-          try {
-            const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
-            if (!chart.notes.length) return
-            pause()
-            state.chart = chart
-            renderTimeline()
-            reset()
-          } catch (err) {
-            console.error("拍号切换重解析失败:", err)
-          }
-        }
+    }
+  }
+  function applyBeatUnit() {
+    const input = $("beatUnitInput")
+    let val = parseInt(input.value)
+    if (!val || val < 1) val = 4
+    if (val > 32) val = 32
+    input.value = val
+    if (val == state.beatUnit) return
+    state.beatUnit = val
+    if (state._parseRaw !== undefined) {
+      try {
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        if (!chart.notes.length) return
+        pause()
+        state.chart = chart
+        renderTimeline()
+        reset()
+      } catch (err) {
+        console.error("拍号切换重解析失败:", err)
       }
-      $("beatsPerBarInput").addEventListener("blur", applyBeatsPerBar)
-      $("beatsPerBarInput").addEventListener("keydown", function (e) {
-        if (e.key == "Enter") { e.preventDefault(); this.blur() }
-      })
-      $("beatUnitInput").addEventListener("blur", applyBeatUnit)
-      $("beatUnitInput").addEventListener("keydown", function (e) {
-        if (e.key == "Enter") { e.preventDefault(); this.blur() }
-      })
+    }
+  }
+  $("beatsPerBarInput").addEventListener("blur", applyBeatsPerBar)
+  $("beatsPerBarInput").addEventListener("keydown", function (e) {
+    if (e.key == "Enter") { e.preventDefault(); this.blur() }
+  })
+  $("beatUnitInput").addEventListener("blur", applyBeatUnit)
+  $("beatUnitInput").addEventListener("keydown", function (e) {
+    if (e.key == "Enter") { e.preventDefault(); this.blur() }
+  })
 
-      // 细分线数量
-      $("subdivisionInput").value = state.subdivision
-      function applySubdivision() {
-        const input = $("subdivisionInput")
-        let val = parseInt(input.value)
-        if (!val || val < 1) val = 4
-        if (val > 16) val = 16
-        input.value = val
-        if (val == state.subdivision) return
-        state.subdivision = val
-        if (state.chart) {
-          renderTimeline()
-        }
-      }
-      $("subdivisionInput").addEventListener("blur", applySubdivision)
-      $("subdivisionInput").addEventListener("keydown", function (e) {
-        if (e.key == "Enter") { e.preventDefault(); this.blur() }
-      })
+  // 细分线数量
+  $("subdivisionInput").value = state.subdivision
+  function applySubdivision() {
+    const input = $("subdivisionInput")
+    let val = parseInt(input.value)
+    if (!val || val < 1) val = 4
+    if (val > 16) val = 16
+    input.value = val
+    if (val == state.subdivision) return
+    state.subdivision = val
+    if (state.chart) {
+      renderTimeline()
+    }
+  }
+  $("subdivisionInput").addEventListener("blur", applySubdivision)
+  $("subdivisionInput").addEventListener("keydown", function (e) {
+    if (e.key == "Enter") { e.preventDefault(); this.blur() }
+  })
 
   $("chordBtn").addEventListener("click", function () {
     state.showChords = !state.showChords

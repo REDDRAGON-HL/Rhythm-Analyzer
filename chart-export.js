@@ -32,7 +32,7 @@ let exportBpmFlashStartSec = -1 // 最近一次 BPM 切换对应的导出视频�
 const EXPORT_COLORS = {
   "std-4": "#1038ff", "std-8": "#ff182f", "std-16": "#4da6ff", "std-32": "#4de0ff",
   "dot-4": "#1038ff", "dot-8": "#ff182f", "dot-16": "#4da6ff",
-  "trip-3": "#22d27e", "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e",
+  "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e",
   "quin-5": "#8b4dd2", "quin-10": "#c266ff", "quin-20": "#ff6dd1",
   "sept-7": "#7c6bff", "sept-14": "#b59cff",
   "nine-9": "#1fbfb0", "nine-18": "#34d399"
@@ -942,7 +942,8 @@ async function startExport(cfg) {
   try { await document.fonts.ready } catch (e) { }
   state.exporting = true
   exportCancelFlag = false
-  exportLastShownBpm = null
+  // 预置为谱面首个 BPM：置 null 会让首帧被判成"切换"，导出视频开头多出一次动效
+  exportLastShownBpm = Math.round(state.chart.bpmFirst)
   exportBpmFlashStartSec = -1
   $("playBtn").disabled = true
   $("pauseBtn").disabled = true

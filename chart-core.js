@@ -159,13 +159,13 @@ const LEGAL_VALUES = [
   { v: 32, label: "32", cls: "std-32", valueClass: "std-value", num: null, group: "std" },
   { v: 64, label: "32", cls: "std-32", valueClass: "std-value", num: null, group: "std" },
   { v: 2, label: "2", cls: "std-4", valueClass: "std-value", num: null, group: "std" },
+  { v: 1.333, label: "2.", cls: "std-4", valueClass: "std-value", num: null, group: "std" },
   { v: 1, label: "1", cls: "std-4", valueClass: "std-value", num: null, group: "std" },
   // 附点组（v = 原时值 / 1.5，间隔 = 1.5 × 原间隔）
   { v: 2.667, label: "4.", cls: "dot-4", valueClass: "dot-value", num: "·", group: "dot", dotted: true },
   { v: 5.333, label: "8.", cls: "dot-8", valueClass: "dot-value", num: "·", group: "dot", dotted: true },
   { v: 10.667, label: "16.", cls: "dot-16", valueClass: "dot-value", num: "·", group: "dot", dotted: true },
   // 三连音（v = 4/gap，gap 越小 v 越大）
-  { v: 1.333, label: "3", cls: "trip-3", valueClass: "trip-value", num: "3", group: "trip" },
   { v: 6, label: "6", cls: "trip-6", valueClass: "trip-value", num: "3", group: "trip" },
   { v: 12, label: "12", cls: "trip-12", valueClass: "trip-value", num: "3", group: "trip" },
   { v: 24, label: "24", cls: "trip-24", valueClass: "trip-value", num: "3", group: "trip" },

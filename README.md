@@ -19,20 +19,21 @@
 - **多押**：自动合并为一个节奏点并处理多轨时值
 - **载入**：导入内容，右键点击载入按钮即可取消载入
 - **drag**：drag可以不参与节奏点合并、拍时值识别、段结构与渲染
+- **长条尾部**：hold 尾拍可单独开关，关闭后长条只保留头判点
 
 ## 导出
-导出会使用当前设定的倍速、drag开关、多押开关、bpm切换动效开关、音乐音量；还有如下可选设置
+导出会使用当前设定的倍速、drag开关、长条尾部开关、多押开关、bpm切换动效开关、拍号与细分线、音乐音量；还有如下可选设置
 - 编码选项（透明底可额外选择bpm面板也透明）：
-  
-| 选项     | 视频编码/像素格式                       | 音频编码    | 输出容器          | 技术依赖 / 备注        |
-| -------- | --------------------------------------- | ----------- | ----------------- | ---------------------- |
-| 黑底     | H.264 (AVC)                             | AAC         | mp4（muxer 封装） | 需浏览器支持 WebCodecs |
-| 透明     | PNG codec + `-pix_fmt rgba -pred mixed` | AAC         | MOV / QuickTime   | 需浏览器支持 WASM      |
-| PNG 序列 | 逐帧导出透明底序列（PNG）               | —（无音频） | 文件夹 / 序列帧   | 每帧独立 PNG 文件      |
+
+| 选项     | 视频编码/像素格式                       | 音频编码    | 输出容器          | 技术依赖 / 备注          |
+| -------- | --------------------------------------- | ----------- | ----------------- | ------------------------ |
+| 黑底     | H.264 (AVC)                             | AAC         | mp4（muxer 封装） | 需浏览器支持 WebCodecs   |
+| 透明     | PNG codec + `-pix_fmt rgba -pred mixed` | AAC         | MOV / QuickTime   | 需浏览器支持 WASM        |
+| PNG 序列 | 逐帧 PNG（含 alpha）                    | WAV (16bit) | zip 打包          | 帧序列 + 音轨 + info.txt |
 
 - 帧率：可选30帧、60帧、90帧、120帧
 
-- 音频采样率：可选44100和48000
+- 音频采样率：可选44100和48000（透明 MOV / PNG 序列固定 48000）
 
 - 输出格式：
 
@@ -49,8 +50,9 @@
 - osu! mania（.osu）（可能有bug）
 - Phigros RPE格式（.json）
 - Phigros 官谱格式（.json）（对变bpm的处理尚不完善）
+- Rizline（.json）
 
-新增格式文件调用 `registerChartAdapter(name, detect, extract)` 注册，再在 index.html 加一行 `<script>` 即可——BPM 分段、时值识别、染色、多押合并、drag 开关等全部自动复用。接口契约见 `chart-core.js` 头部注释。
+新增格式文件调用 `registerChartAdapter(name, detect, extract)` 注册，再在 index.html 加一行 `<script>` 即可——BPM 分段、时值识别、染色、多押合并、drag 开关、长条尾部开关等全部自动复用。接口契约见 `chart-core.js` 头部注释。
 
 
 ## 目录结构
@@ -62,6 +64,7 @@ malody-mc.js      Malody 格式支持
 osu-mania.js      osu!mania .osu 格式支持
 phi-rpe.js        Phigros RPE格式支持
 phi-official.js   Phigros 官谱格式支持
+rizline.js        Rizline 格式支持
 chart-export.js   导出编排：逐帧渲染画布 + 黑底 MP4（WebCodecs worker 调度）/ 透明 MOV PNG（ffmpeg.wasm 单实例）/ PNG 序列 zip + 格式转换
 export-worker.js  黑底 MP4 导出 Worker（WebCodecs H.264/AAC 编码 + mp4-muxer 封装；webm VP9 alpha 路径代码保留，待浏览器原生实装后自动恢复）
 lib/
@@ -72,14 +75,27 @@ lib/
       └ core/  ffmpeg-core.esm.js + ffmpeg-core.wasm
 ```
 
+## noteType 约定
+
+所有适配器统一的 noteType 字段：
+
+| 值  | 含义                       | 开关         |
+| --- | -------------------------- | ------------ |
+| 0   | 普通 tap / flick / hold 头 | —            |
+| 1   | drag                       | 显示 drag    |
+| 2   | hold 尾拍                  | 显示长条尾部 |
+
 ## TODO
 - [x] 自定义字体
 - [x] 关掉这个很丑的变bpm动画的按钮
 - [x] 更棒的导出
 - [x] 显示 drag 开关
 - [x] Phigros适配器
+- [x] Rizline 适配器
+- [x] 显示长条尾部开关
+- [x] 自定义拍号
+- [x] 自定义细分线数量
 - [ ] 多次暂停后音频延迟问题
-- [ ] phi变速识别问题修复
 
 ## 感谢
 - [8岁时光](https://space.bilibili.com/12913967) 原版节奏解析作者
