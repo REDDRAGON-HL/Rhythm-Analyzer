@@ -270,16 +270,17 @@ function parseChart(raw, opts) {
   //   noteType：0=普通tap，1=drag，2=hold尾
   const TYPE_DRAG = 1
   const TYPE_HOLD_TAIL = 2
-  const showDrag = !(opts && opts.showDrag == false)
+  // drag 显示模式
+  const dragMode = (opts && opts.dragMode) || ((opts && opts.showDrag == false) ? "off" : "all")
   const showHoldTail = !(opts && opts.showHoldTail == false)
   let filteredTaps = taps
-  if (!showDrag) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_DRAG)
+  if (dragMode == "off") filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_DRAG)
   if (!showHoldTail) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_HOLD_TAIL)
 
   // 转换拍数并排序，保留 noteType 供 notes 字段透传（用于将来渲染/统计）
   const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0 }))
     .sort((a, b) => a.beatVal - b.beatVal)
-  const rawTapCount = sorted.length
+  let rawTapCount = sorted.length
 
   //  多押去重，chordCount 记录叠加数
   const DEDUP_EPS = 1e-6
@@ -300,6 +301,42 @@ function parseChart(raw, opts) {
         hasHoldTail: (t.noteType == TYPE_HOLD_TAIL)
       })
     }
+  }
+
+  // 连续 noteType=1 折叠
+  if (dragMode == "first") {
+    const gapAt = i => (i + 1 < withBeat.length) ? (withBeat[i + 1].beatVal - withBeat[i].beatVal) : null
+    const sameValue = (a, b) => (a !== null && b !== null) && (matchValue(4 / a).v === matchValue(4 / b).v)
+    const keep = new Array(withBeat.length).fill(true)
+    // 收束一串 [a, b]
+    const collapse = (a, b) => {
+      if (b <= a) return
+      const prevIsTap = a > 0 && withBeat[a - 1].noteType == 0
+      const hideAll = prevIsTap && sameValue(gapAt(a - 1), gapAt(a))
+      for (let m = (hideAll ? a : a + 1); m <= b; m++) keep[m] = false
+    }
+    const dragIdx = []
+    for (let i = 0; i < withBeat.length; i++) if (withBeat[i].noteType == TYPE_DRAG) dragIdx.push(i)
+    let segStart = 0
+    for (let k = 1; k <= dragIdx.length; k++) {
+      let boundary = (k == dragIdx.length)
+      if (!boundary) {
+        const g = gapAt(dragIdx[k - 1])
+        const gPrev = (k >= 2) ? gapAt(dragIdx[k - 2]) : null
+        const gNext = (k + 1 < dragIdx.length) ? gapAt(dragIdx[k]) : null
+        boundary = !sameValue(g, gPrev) && !sameValue(g, gNext)
+      }
+      if (!boundary) continue
+      collapse(dragIdx[segStart], dragIdx[k - 1])
+      segStart = k
+    }
+    const kept = []
+    for (let m = 0; m < withBeat.length; m++) {
+      if (keep[m]) kept.push(withBeat[m])
+      else rawTapCount -= withBeat[m].chordCount   // 被折叠的点整点不渲染，原始点击音计数同步扣减
+    }
+    withBeat.length = 0
+    for (const p of kept) withBeat.push(p)
   }
 
   //   就近染色分组

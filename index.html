@@ -1106,7 +1106,13 @@
     lastShownBpm: null, // 上次显示的 BPM
     exporting: false,   // 是否正在导出视频
     showChords: false,  // 显示多押开关
-    showDrag: (function () { try { return localStorage.getItem("showDrag") !== "0" } catch (_) { return true } })(),
+    // drag 显示模式
+    dragMode: (function () {
+      try {
+        const v = localStorage.getItem("showDrag")
+        return v === "0" ? "off" : (v === "2" ? "first" : "all")
+      } catch (_) { return "all" }
+    })(),
     showHoldTail: (function () { try { return localStorage.getItem("showHoldTail") !== "0" } catch (_) { return true } })(),
     beatsPerBar: 4,
     beatUnit: 4,
@@ -1621,7 +1627,7 @@
         // 扩展名传给解析器分发格式
         const ext = (f.name.split(".").pop() || "").toLowerCase()
         state._parseRaw = raw; state._parseKind = ext
-        const chart = parseChart(raw, { kind: ext, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(raw, { kind: ext, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) {
           alert("未在谱面中找到note！")
           return
@@ -1646,7 +1652,7 @@
       let raw
       try { raw = JSON.parse(text) } catch (e) { raw = text }
       state._parseRaw = raw; state._parseKind = undefined
-      const chart = parseChart(raw, { showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+      const chart = parseChart(raw, { showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
       state.chart = chart
       renderTimeline()
       reset()
@@ -1659,20 +1665,27 @@
   $("pauseBtn").addEventListener("click", pause)
   $("resetBtn").addEventListener("click", reset)
   $("bpmAnimBtn").classList.toggle("active", state.bpmAnim)
-  $("dragBtn").classList.toggle("active", state.showDrag)
+    // drag 显示模式
+    const DRAG_MODES = ["off", "all", "first"]
+    const DRAG_MODE_LABEL = { off: "显示 drag", all: "显示 drag", first: "显示首个 drag" }
+    function applyDragMode() {
+      $("dragBtn").textContent = DRAG_MODE_LABEL[state.dragMode]
+      $("dragBtn").title = "drag 显示模式（点击循环）：关闭 / 显示 drag / 显示首个 drag"
+      $("dragBtn").classList.toggle("active", state.dragMode !== "off")
+      try { localStorage.setItem("showDrag", state.dragMode === "off" ? "0" : (state.dragMode === "first" ? "2" : "1")) } catch (_) { }
+    }
+    applyDragMode()
   $("holdTailBtn").classList.toggle("active", state.showHoldTail)
   $("chordBtn").classList.toggle("active", state.showChords)
   document.body.classList.toggle("show-chords", state.showChords)
 
-  // 显示drag默认开；切换后需要重新解析当前谱面
   $("dragBtn").addEventListener("click", function () {
-    state.showDrag = !state.showDrag
-    $("dragBtn").classList.toggle("active", state.showDrag)
-    try { localStorage.setItem("showDrag", state.showDrag ? "1" : "0") } catch (_) { }
+    state.dragMode = DRAG_MODES[(DRAG_MODES.indexOf(state.dragMode) + 1) % DRAG_MODES.length]
+    applyDragMode()
     // 如果当前有谱面数据用解析时保存的raw+kind重跑parseChart
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1691,7 +1704,7 @@
     try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1716,7 +1729,7 @@
     state.beatsPerBar = val
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1737,7 +1750,7 @@
     state.beatUnit = val
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.showDrag, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
