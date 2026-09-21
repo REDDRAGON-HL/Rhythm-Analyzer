@@ -107,22 +107,73 @@ registerChartAdapter(
     else segments.push({ startSec: Math.max(0, prevSec), bpm: b })
     if (!segments.length) segments.push({ startSec: 0, bpm: masterBpm })
 
-    // 段边界拍网格吸附（好乱不知道怎么写）
-    //  对第 k 段，计算「上一段 BPM 下从段 k-1 起点秒到段 k 起点秒的拍值跨度 deltaBeat」
-    //  加到段 k-1 的吸附起点拍上，再 snap 到 1/SNAP_DEN 网格
-    //  吸附后拍轴对应的秒（用于 note.second↔beatVal 换算）统一用「标准 time[] 连续拍积分」反推
-    //  即 chart-core 会在解析时用的算法，以保证和输出给它的 time[] 完全自洽。
-    const SNAP_DEN = 4
-    const snapBeat = v => Math.round(v * SNAP_DEN) / SNAP_DEN
+    // 段边界拍 + 段起点秒
+    //  段内音符拍值可解析写成 beat = T/32 − Ψ（T 为该判定线 tick、
+    //  Ψ = 段起点秒 × bpm/60 − 段起点拍）。T/32 已是音符在自身判定线网格上的位置，
+    //  所以 Ψ 与该段音符的 tick 相位 φ = (T/32) mod 0.5 不同余时，整段音符会一起偏
+    //  同一相位（phi/IN.json 的 140 回 250 段 Ψ = 26.768、φ = 0，全段恒定偏 0.232 拍 ≈ 56ms）。
+    //  段边界落在「上一段末音 ~ 本段首音」的无音空窗内，该区间拍轴无观测约束、取值自由，
+    //  故段边界拍取「使 Ψ ≡ φ (mod 0.5)」的最近解；φ 落在 1/2 拍网格上时再优先 Ψ ∈ ℤ，
+    //  让该线整拍 tick 落在整数拍上（与首段 startBeat = 0 的相位约定一致）。不能一律取整：
+    //  140 线的音符 tick 本身在 1/4 偏移上（φ = 0.25），取整会把对齐的 140 段弄错位。
+    //  段起点秒取该拍在轴上的时间 → deltaSec 恒为 0 → 音符时间 = 官谱判定秒，不做平移
+    //（靠 deltaSec 平移音符来凑对齐会让整段提前、与音频脱节）。
+    const rawSec = segments.map(sg => sg.startSec)   // 原始边界秒（run 起止），仅用于外推
+
+    // 各段音符的 tick 相位 φ = (T/32) mod 0.5（取众数，量化到 1/32 拍）
+    const segPhase = segments.map(function (sg, k) {
+      const nextStart = (k + 1 < segments.length) ? rawSec[k + 1] : Infinity
+      const bins = {}
+      let total = 0
+      for (const x of notes) {
+        if (x.bpm !== sg.bpm) continue
+        if (x.sec < rawSec[k] || x.sec >= nextStart) continue
+        const key = Math.round((((x.ticks / TICKS_PER_BEAT) % 0.5 + 0.5) % 0.5) * TICKS_PER_BEAT)
+        bins[key] = (bins[key] || 0) + 1
+        total++
+      }
+      if (!total) return null
+      let best = 0, bestN = -1
+      for (const key of Object.keys(bins)) {
+        if (bins[key] > bestN) { bestN = bins[key]; best = Number(key) }
+      }
+      return best / TICKS_PER_BEAT
+    })
+
+    const snapBeat = v => Math.round(v * 4) / 4
     const segBeats = [0]
+    const segTimes = [0]
     for (let k = 1; k < segments.length; k++) {
-      const bpmPrev = segments[k - 1].bpm
-      const secPrev0 = segments[k - 1].startSec
-      const secCur0 = segments[k].startSec
-      const deltaBeat = (secCur0 - secPrev0) * bpmPrev / 60
-      const rawNext = segBeats[k - 1] + deltaBeat
-      segBeats.push(snapBeat(rawNext))
+      const p = 60 / segments[k - 1].bpm        // 上一段：秒/拍
+      const q = segments[k].bpm / 60            // 本段：拍/秒
+      const c = p * q - 1                       // dΨ/dB
+      const B0 = segBeats[k - 1], T0 = segTimes[k - 1]
+      const psiAt = B => (T0 + (B - B0) * p) * q - B
+      const rawNext = B0 + (rawSec[k] - rawSec[k - 1]) / p
+      // 合法窗口：段起点秒须落在「上一段末音之后、本段首音之前」，否则所属段判定会乱
+      let lo = -Infinity, hi = Infinity
+      for (const x of notes) {
+        if (x.sec < rawSec[k]) { if (x.sec > lo) lo = x.sec }
+        else if (x.sec < hi) hi = x.sec
+      }
+      let B = snapBeat(rawNext)
+      const phi = segPhase[k]
+      if (phi !== null && Math.abs(c) > 1e-9) {
+        const psiRaw = psiAt(rawNext)
+        const onHalfGrid = Math.abs(phi - Math.round(phi * 2) / 2) < 1e-9
+        const mods = onHalfGrid ? [1, 0.5] : [0.5]
+        for (const mod of mods) {
+          const cand = phi + Math.round((psiRaw - phi) / mod) * mod
+          const candB = rawNext + (cand - psiRaw) / c
+          const candT = T0 + (candB - B0) * p
+          if (candT >= lo - 1e-9 && candT <= hi + 1e-9) { B = candB; break }
+        }
+      }
+      segBeats.push(B)
+      segTimes.push(T0 + (B - B0) * p)
     }
+    // 段起点秒 = 该拍在轴上的时间
+    for (let k = 1; k < segments.length; k++) segments[k].startSec = segTimes[k]
     // time[] 是最终给 chart-core 的标准段表：beat 三元组 + 该段 bpm
     // chart-core 会对 time[] 做「beat 差分 × 60/bpm 积分」得到标准 seconds，
     // 所以用完全相同的算法把 note.sec 映射到 beatVal
@@ -138,8 +189,8 @@ registerChartAdapter(
       stdSegs.push({ startBeat, endBeat, bpm: time[k].bpm, startTime: accumulated })
       if (k + 1 < time.length) accumulated += (endBeat - startBeat) * 60 / time[k].bpm
     }
-    // deltaSec[k]，第k段内所有 note.sec 统一加上的平移校正秒
-    const deltaSec = segments.map((sg, k) => stdSegs[k].startTime - sg.startSec)
+    // deltaSec 恒为 0：段起点秒已取为该拍在轴上的时间（见上一步）
+    const deltaSec = segments.map(() => 0)
     function rawSecToStdSec(sec) {
       // 段定位，落在哪个原始 segments[k]
       let k = segments.length - 1
