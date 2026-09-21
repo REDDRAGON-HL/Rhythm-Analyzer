@@ -311,9 +311,10 @@ function parseChart(raw, opts) {
     // 收束一串 [a, b]
     const collapse = (a, b) => {
       if (b <= a) return
-      const prevIsTap = a > 0 && withBeat[a - 1].noteType == 0
-      const hideAll = prevIsTap && sameValue(gapAt(a - 1), gapAt(a))
-      for (let m = (hideAll ? a : a + 1); m <= b; m++) keep[m] = false
+      const s = dragIdx[a]
+      const prevIsTap = s > 0 && withBeat[s - 1].noteType == 0
+      const hideAll = prevIsTap && sameValue(gapAt(s - 1), gapAt(s))
+      for (let q = (hideAll ? a : a + 1); q <= b; q++) keep[dragIdx[q]] = false
     }
     const dragIdx = []
     for (let i = 0; i < withBeat.length; i++) if (withBeat[i].noteType == TYPE_DRAG) dragIdx.push(i)
@@ -327,7 +328,7 @@ function parseChart(raw, opts) {
         boundary = !sameValue(g, gPrev) && !sameValue(g, gNext)
       }
       if (!boundary) continue
-      collapse(dragIdx[segStart], dragIdx[k - 1])
+      collapse(segStart, k - 1)
       segStart = k
     }
     const kept = []
