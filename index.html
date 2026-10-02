@@ -107,6 +107,27 @@
     color: #fef3c7;
   }
 
+  .export-progress {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 250;
+    width: min(420px, calc(100vw - 32px));
+    padding: 16px;
+    border: 1px solid #fbbf24;
+    border-radius: 10px;
+    background: #0f172a;
+    box-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+    color: #e2e8f0;
+  }
+  .export-progress[hidden] { display: none; }
+  .export-progress[data-status="complete"] { border-color: #34d399; }
+  .export-progress[data-status="failed"] { border-color: #f87171; }
+  .export-progress-header, .export-progress-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .export-progress p { margin: 12px 0; font-size: 14px; overflow-wrap: anywhere; max-height: 140px; overflow-y: auto; }
+  .export-progress progress { display: block; width: 100%; height: 16px; accent-color: #fbbf24; margin-bottom: 12px; }
+  .export-progress button { padding: 5px 12px; }
+
   .playback-row button.active {
     background: rgba(52, 211, 153, 0.22);
     border-color: #34d399;
@@ -135,6 +156,17 @@
     color: #94a3b8;
     flex-shrink: 0;
   }
+
+  .flow-ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #a7f3d0;
+    font-size: 13px;
+  }
+
+  .flow-ctl input { width: 130px; accent-color: #34d399; }
+  .flow-ctl output { min-width: 5ch; font-variant-numeric: tabular-nums; }
 
   input[type=range] {
     width: 120px;
@@ -362,6 +394,7 @@
     padding: 24px 0 0;
     margin: 20px 32px;
     border-radius: 8px;
+    max-width: calc(100% - 64px);
     background: #000;
     border: 1px solid rgba(255, 255, 255, 0.08);
     overflow: hidden;
@@ -510,6 +543,53 @@
     width: 1px;
     background: rgba(255, 255, 255, 0.06);
   }
+
+  .meter-tag {
+    position: absolute;
+    top: 25px;
+    transform: translateX(-50%);
+    color: #ffcc80;
+    background: #171923;
+    padding: 1px 5px;
+    font-size: 11px;
+    z-index: 7;
+    white-space: nowrap;
+  }
+
+  .timeline .note.meter-selectable { cursor: pointer; }
+  .viewport-resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 16px;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-left: 1px dashed #4de0ff;
+    border-radius: 0;
+    background: rgba(77,224,255,.08);
+    color: #4de0ff;
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 120;
+  }
+  .viewport-resize-handle:hover { background: rgba(77,224,255,.2); }
+  body.resizing-viewport, body.resizing-viewport * { cursor: ew-resize !important; user-select: none !important; }
+  .viewport-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #4de0ff; }
+  .viewport-controls input { width: 100px; padding: 7px; color: #fff; background: #0f172a; border: 1px solid #475569; border-radius: 4px; }
+  .timeline .note.selected .shape { outline: 2px solid #ffcc80; outline-offset: 4px; }
+  .meter-editor { margin-top: 14px; padding: 12px; border: 1px solid #334155; border-radius: 8px; }
+  .meter-editor summary { cursor: pointer; color: #ffcc80; }
+  .meter-editor p { color: #aab6c8; font-size: 13px; }
+  .meter-controls, .meter-entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .meter-controls input { width: 95px; padding: 7px; color: #fff; background: #0f172a; border: 1px solid #475569; border-radius: 4px; }
+  .meter-controls input[type="number"]:invalid { border-color: #f87171; }
+  .meter-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .meter-entry { font-size: 13px; }
+  .meter-entry button { padding: 4px 10px; font-size: 12px; }
+  .meter-status { min-height: 20px; color: #ffcc80; margin-top: 8px; font-size: 13px; }
+  .meter-json-import { margin-top: 12px; }
+  .meter-json-import textarea { width: 100%; box-sizing: border-box; padding: 10px; color: #fff; background: #0f172a; border: 1px solid #475569; border-radius: 4px; font: 13px monospace; resize: vertical; margin-bottom: 8px; }
 
   .bpm-line {
     position: absolute;
@@ -891,7 +971,7 @@
     </div>
     <div class="info-card time-sig-card">
       <div>
-        <div class="info-label">拍号</div>
+        <div class="info-label">初始拍号</div>
         <div class="info-value">
           <input type="number" id="beatsPerBarInput" min="1" max="32" step="1" value="4">
           <span class="time-sig-slash">/</span>
@@ -910,7 +990,8 @@
     </div>
   </div>
 
-  <div class="chart-area">
+  <div class="chart-area" id="chartArea">
+    <button id="viewportResizeHandle" class="viewport-resize-handle" role="separator" aria-orientation="vertical" aria-label="可视区域右边界：拖动调整宽度" title="拖动此边界调整可视宽度，导出画面同步；方向键微调">↔</button>
     <div class="bpm-panel" id="bpmPanel">
       <div class="bpm-label">BPM</div>
       <div class="bpm-value" id="bpmLarge">--</div>
@@ -938,6 +1019,11 @@
         <option value="2">2.0x</option>
         <option value="4">4.0x</option>
       </select>
+      <label class="flow-ctl" title="调整时间轴滚动速度和音符间距，音乐播放速度保持不变">
+        轴流动速度
+        <input id="flowSpeed" type="range" min="0.25" max="4" step="0.05" value="1">
+        <output id="flowSpeedValue" for="flowSpeed">1.00×</output>
+      </label>
       <button id="dragBtn" class="active">显示 drag</button>
       <button id="holdTailBtn" class="active">显示长条尾部</button>
       <button id="chordBtn">显示多押</button>
@@ -946,7 +1032,7 @@
     </div>
     <div class="toolbar sub-row">
       <label class="file-label" id="fileLabel" title="右键点击取消载入">加载谱面
-        <input type="file" id="fileInput" accept=".json,.mc,.osu">
+        <input type="file" id="fileInput" accept=".json,.mc,.osu,.txt">
       </label>
       <label class="file-label" id="songLabel" title="右键点击取消载入">加载音乐
         <input type="file" id="songInput" accept="audio/*">
@@ -962,6 +1048,40 @@
         <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/*">
       </label>
     </div>
+    <div class="viewport-controls">
+      <label>可视宽度 <input id="viewportWidthInput" type="number" min="360" step="1" required> px</label>
+      <button id="viewportWidthApplyBtn">应用宽度</button>
+      <button id="viewportWidthResetBtn">恢复默认宽度</button>
+      <span>拖动可视区域右边界 ↔ 即时调整，导出画面使用此宽度</span>
+      <span id="viewportWidthStatus" role="status" aria-live="polite"></span>
+    </div>
+    <details class="meter-editor" id="meterEditor" hidden>
+      <summary>节点拍号 · 当前 <span id="currentMeter">4/4</span></summary>
+      <p>点击时间轴上的音符选择节点，或输入四分音符拍数。修改从该节点开启新小节，持续到下一次修改。</p>
+      <div class="meter-controls">
+        <label>起始拍 <input id="meterBeatInput" type="number" min="0" step="any" value="0" required></label>
+        <label>拍号 <input id="meterNumeratorInput" type="number" min="1" max="32" step="1" value="4" required></label>
+        <span>/</span>
+        <select id="meterDenominatorInput" aria-label="节点拍号分母">
+          <option value="1">1</option><option value="2">2</option><option value="4" selected>4</option>
+          <option value="8">8</option><option value="16">16</option><option value="32">32</option>
+        </select>
+        <button id="meterCurrentBtn" disabled>使用播放头位置</button>
+        <button id="meterApplyBtn" disabled>添加 / 更新节点</button>
+      </div>
+      <details class="meter-json-import" id="meterJsonEditor">
+        <summary>导入拍号 JSON（毫秒时间）</summary>
+        <p>粘贴拍号数组，或导入 time_signatures.json 并选择歌曲。time 使用 TXT 中的毫秒时间，自动按 BPM 换算拍数。应用后替换当前拍号标记；首个标记前默认为 4/4。</p>
+        <textarea id="meterJsonInput" rows="6" aria-label="拍号 JSON" placeholder='[{"time":8789,"numerator":9,"denominator":8}]'></textarea>
+        <div class="meter-controls">
+          <label class="file-label">导入 JSON 文件<input id="meterJsonFileInput" type="file" accept=".json,application/json"></label>
+          <label id="meterJsonSongLabel" hidden>歌曲 <select id="meterJsonSongSelect" aria-label="拍号 JSON 中的歌曲"></select></label>
+          <button id="meterJsonApplyBtn">解析并应用 JSON</button>
+        </div>
+      </details>
+      <div id="meterStatus" class="meter-status" role="status" aria-live="polite"></div>
+      <div id="meterList" class="meter-list"></div>
+    </details>
   </div>
 
   <div class="panel-row">
@@ -1025,7 +1145,7 @@
       <h3><a href="https://github.com/REDDRAGON-HL/Rhythm-Analyzer" target="_blank">说明</a></h3>
       <p class="info-item"><b>note数</b>显示 展示的 note 数 / 原始 note 数<br><b>载入</b>右键对应按钮可以退载<br><b>导出</b>相当多可调设置的导出
         同步使用当前的外部设置</p>
-      <p class="info-item"><b>支持的谱面格式:</b>malody key、osu! mania(可能不稳定)、phi-rpe、phi-official(变bpm处理有点bug。)</p>
+      <p class="info-item"><b>支持的谱面格式:</b>Malody key、osu! mania、Phigros RPE / 官谱、Rizline、In Falsus ICP1、Rotaeno TXT<br>Rotaeno 默认 4/4，可点击音符手动标注节点拍号。</p>
       <p class="info-item"><a href="https://github.com/REDDRAGON-HL/Rhythm-Analyzer"
           target="_blank"><b>github仓库:</b>REDDRAGON-HL/Rhythm-Analyzer</a></p>
       <p class="info-item">
@@ -1033,6 +1153,19 @@
             href="https://space.bilibili.com/522436459" target="_blank">@X红龙X</a></b>，这会让我非常高兴咕！</p>
     </div>
   </div>
+
+  <section class="export-progress" id="exportProgressPanel" hidden aria-label="导出进度">
+    <div class="export-progress-header">
+      <strong>导出进度</strong>
+      <button id="exportDismissBtn" hidden aria-label="关闭导出进度">关闭</button>
+    </div>
+    <p id="exportProgressStage" role="status" aria-live="polite">准备导出…</p>
+    <progress id="exportProgressBar" max="100" value="0" aria-label="总体导出进度"></progress>
+    <div class="export-progress-actions">
+      <span id="exportProgressPercent">0%</span>
+      <button id="exportCancelBtn">取消导出</button>
+    </div>
+  </section>
 
   <div class="modal-mask" id="exportModal">
     <div class="modal">
@@ -1092,6 +1225,7 @@
 <script src="phi-official.js"></script>
 <script src="rizline.js"></script>
 <script src="infalsus.js"></script>
+<script src="rotaeno.js"></script>
 <script src="chart-export.js"></script>
 <script>
   let state = {
@@ -1103,6 +1237,7 @@
     wallStartPerf: 0,   // 本次按下播放的 performance.now()
     speed: 1,
     rafId: null,
+    autoScrollLeft: null,
     playBeat: 0,        // 当前播放头所在的拍号
     lastShownBpm: null, // 上次显示的 BPM
     exporting: false,   // 是否正在导出视频
@@ -1118,12 +1253,258 @@
     beatsPerBar: 4,
     beatUnit: 4,
     subdivision: 4,
+    meterChanges: [],
+    selectedMeterBeat: null,
+    viewportWidth: null,
+    resizingViewport: false,
     bpmAnim: true,      // BPM 动画开关
     _parseRaw: undefined, // 最近一次解析的原始数据, 用于切换 drag 开关后就地重解析
     _parseKind: undefined // 最近一次解析的格式 kind
   }
 
   const $ = id => document.getElementById(id)  // 唉怎么想到的这个有点强
+
+  $("flowSpeed").addEventListener("input", function () {
+    if (state.exporting) return
+    const previous = state.pixelsPerBeat
+    state.pixelsPerBeat = 120 * Number(this.value)
+    $("flowSpeedValue").value = Number(this.value).toFixed(2) + "×"
+    if (!state.chart) return
+    const timeline = $("timeline")
+    const ratio = state.pixelsPerBeat / previous
+    // 只更新横坐标，保留播放状态、已触发的打击音及选中的拍号节点。
+    for (const child of timeline.children) {
+      child.style.left = parseFloat(child.style.left) * ratio + "px"
+    }
+    updateTimelineWidth()
+    updatePlayhead(state.curSec, true)
+  })
+
+  function chartParseOptions(kind = state._parseKind) {
+    return { kind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail,
+      beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, meterChanges: state.meterChanges }
+  }
+
+  function syncMeterEditor() {
+    const allowed = state.chart && state.chart.format === "rotaeno"
+    $("meterEditor").hidden = !allowed
+    if (!allowed) $("meterEditor").open = false
+    const disabled = !allowed || state.exporting
+    $("meterCurrentBtn").disabled = disabled
+    $("meterApplyBtn").disabled = disabled
+    for (const id of ["meterBeatInput", "meterNumeratorInput", "meterDenominatorInput", "meterJsonInput", "meterJsonFileInput", "meterJsonSongSelect", "meterJsonApplyBtn"]) $(id).disabled = disabled
+    for (const id of ["beatsPerBarInput", "beatUnitInput"]) $(id).disabled = state.exporting
+    syncViewportControls()
+    const list = $("meterList")
+    list.replaceChildren()
+    const initial = document.createElement("div")
+    initial.className = "meter-entry"
+    initial.textContent = `第 0 拍起：${state.beatsPerBar}/${state.beatUnit}（初始拍号）`
+    list.appendChild(initial)
+    state.meterChanges.forEach(change => {
+      const row = document.createElement("div")
+      row.className = "meter-entry"
+      const label = document.createElement("span")
+      label.textContent = `第 ${formatMeterBeat(change.startBeat)} 拍起：${change.beatsPerBar}/${change.beatUnit}`
+      const edit = document.createElement("button")
+      edit.textContent = "编辑"
+      edit.disabled = disabled
+      edit.addEventListener("click", () => selectMeterBeat(change.startBeat))
+      const remove = document.createElement("button")
+      remove.textContent = "删除"
+      remove.disabled = disabled
+      remove.addEventListener("click", () => {
+        if (state.exporting) return
+        const next = state.meterChanges.filter(item => item !== change)
+        applyMeterChanges(next)
+      })
+      row.append(label, edit, remove)
+      list.appendChild(row)
+    })
+    const meter = state.chart ? meterAtBeat(state.chart, state.playBeat) : { beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit }
+    $("currentMeter").textContent = `${meter.beatsPerBar}/${meter.beatUnit}`
+  }
+
+  function formatMeterBeat(beat) { return String(Math.round(beat * 1e9) / 1e9) }
+
+  function selectMeterBeat(beat) {
+    if (!state.chart || state.chart.format !== "rotaeno" || state.exporting) return
+    pause()
+    state.selectedMeterBeat = beat
+    const meter = meterAtBeat(state.chart, beat)
+    $("meterBeatInput").value = formatMeterBeat(beat)
+    $("meterNumeratorInput").value = meter.beatsPerBar
+    const denominatorInput = $("meterDenominatorInput")
+    if (!Array.from(denominatorInput.options).some(option => Number(option.value) === meter.beatUnit)) {
+      denominatorInput.add(new Option(String(meter.beatUnit), String(meter.beatUnit)))
+    }
+    denominatorInput.value = meter.beatUnit
+    $("meterEditor").open = true
+    $("meterStatus").textContent = `已选择第 ${formatMeterBeat(beat)} 拍（${fmtTime(beatToSecond(beat, state.chart.bpmSegments))}）`
+    for (const el of $("timeline")._noteEls || []) el.classList.toggle("selected", Math.abs(Number(el.dataset.beat) - beat) < 1e-6)
+  }
+
+  // 拍号修改只重建小节划分，保留播放位置和四分音符拍轴。
+  function applyMeterChanges(changes, initial = null) {
+    if (!state.chart || state.chart.format !== "rotaeno" || state.exporting) return
+    try {
+      const options = chartParseOptions()
+      options.meterChanges = changes
+      if (initial) { options.beatsPerBar = initial.beatsPerBar; options.beatUnit = initial.beatUnit }
+      const chart = parseChart(state._parseRaw, options)
+      pause()
+      const position = Math.min(state.curSec, chart.playEndSeconds)
+      state.meterChanges = changes
+      state.beatsPerBar = options.beatsPerBar
+      state.beatUnit = options.beatUnit
+      $("beatsPerBarInput").value = state.beatsPerBar
+      $("beatUnitInput").value = state.beatUnit
+      state.chart = chart
+      renderTimeline()
+      updatePlayhead(position, true)
+      $("meterStatus").textContent = "拍号已更新，预览和导出将使用新的小节划分。"
+      return true
+    } catch (err) { $("meterStatus").textContent = err.message; return false }
+  }
+
+  $("meterCurrentBtn").addEventListener("click", () => { if (state.chart) selectMeterBeat(Math.max(0, Math.min(state.chart.totalBeats, state.playBeat))) })
+  $("meterApplyBtn").addEventListener("click", function () {
+    if (!state.chart || state.chart.format !== "rotaeno" || state.exporting) return
+    const beatInput = $("meterBeatInput"), numeratorInput = $("meterNumeratorInput")
+    if (!beatInput.reportValidity() || !numeratorInput.reportValidity()) return
+    let beat = Number(beatInput.value)
+    const numerator = Number(numeratorInput.value), denominator = Number($("meterDenominatorInput").value)
+    if (beat > state.chart.totalBeats + 1e-6) {
+      $("meterStatus").textContent = `节点不能超过最后一个音符（第 ${formatMeterBeat(state.chart.totalBeats)} 拍）。`
+      return
+    }
+    const existing = state.meterChanges.find(s => Math.abs(s.startBeat - beat) < 1e-6)
+    if (existing) beat = existing.startBeat
+    if (Math.abs(beat) < 1e-6) {
+      applyMeterChanges(state.meterChanges, { beatsPerBar: numerator, beatUnit: denominator })
+    } else {
+      const next = state.meterChanges.filter(s => s !== existing)
+      next.push({ startBeat: beat, beatsPerBar: numerator, beatUnit: denominator })
+      next.sort((a, b) => a.startBeat - b.startBeat)
+      applyMeterChanges(next)
+    }
+  })
+
+  function clearMeterJsonInput() {
+    $("meterJsonInput").value = ""
+    $("meterJsonSongSelect").replaceChildren()
+    $("meterJsonSongLabel").hidden = true
+  }
+  function importMeterJson() {
+    if (!state.chart || state.chart.format !== "rotaeno" || state.exporting) return
+    try {
+      const choices = rotaenoMeterJsonChoices($("meterJsonInput").value)
+      const select = $("meterJsonSongSelect")
+      const selectedId = select.value
+      select.replaceChildren()
+      $("meterJsonSongLabel").hidden = !choices[0].songId
+      if (choices.length > 1) select.add(new Option("请选择歌曲", ""))
+      choices.forEach(choice => select.add(new Option(choice.songId || "拍号数组", choice.songId)))
+      if (choices.some(choice => choice.songId === selectedId)) select.value = selectedId
+      const choice = choices.length === 1 ? choices[0] : choices.find(item => item.songId === select.value)
+      if (!choice) { $("meterStatus").textContent = "JSON 已解析，请选择要应用的歌曲。"; return }
+      const parsed = parseRotaenoMeterEvents(choice.events, state.chart)
+      if (applyMeterChanges(parsed.meterChanges, parsed)) {
+        $("meterStatus").textContent = `已应用 ${parsed.importedCount} 条拍号标记${choice.songId ? "（" + choice.songId + "）" : ""}，初始拍号 ${parsed.beatsPerBar}/${parsed.beatUnit}；预览和导出已同步。`
+      }
+    } catch (err) { $("meterStatus").textContent = err.message }
+  }
+  $("meterJsonApplyBtn").addEventListener("click", importMeterJson)
+  $("meterJsonSongSelect").addEventListener("change", importMeterJson)
+  $("meterJsonInput").addEventListener("input", () => {
+    $("meterJsonSongSelect").replaceChildren()
+    $("meterJsonSongLabel").hidden = true
+  })
+  $("meterJsonFileInput").addEventListener("change", async function () {
+    const file = this.files[0]
+    this.value = ""
+    if (!file || !state.chart || state.chart.format !== "rotaeno" || state.exporting) return
+    const chart = state.chart
+    try {
+      const text = await file.text()
+      if (state.chart !== chart || state.exporting) return
+      clearMeterJsonInput()
+      $("meterJsonInput").value = text.replace(/^\uFEFF/, "")
+      $("meterJsonEditor").open = true
+      importMeterJson()
+    } catch (err) { $("meterStatus").textContent = "无法读取拍号 JSON：" + err.message }
+  })
+  syncMeterEditor()
+
+  function updateTimelineWidth() {
+    if (!state.chart) return
+    const timeline = $("timeline")
+    timeline.style.minWidth = Math.max(6000, timeline._maxBeat * state.pixelsPerBeat + 800) + "px"
+  }
+
+  function viewportWidthBounds() {
+    const max = Math.max(1, $("chartArea").parentElement.clientWidth - 64)
+    return { min: Math.min(360, max), max }
+  }
+  function syncViewportControls() {
+    const { min, max } = viewportWidthBounds()
+    $("viewportWidthInput").min = min
+    $("viewportWidthInput").max = max
+    for (const id of ["viewportWidthInput", "viewportWidthApplyBtn", "viewportResizeHandle"]) $(id).disabled = state.exporting
+    $("viewportWidthResetBtn").disabled = state.exporting || state.viewportWidth === null
+    const width = Math.round($("chartArea").getBoundingClientRect().width)
+    $("viewportWidthInput").value = width
+    $("viewportResizeHandle").setAttribute("aria-valuenow", width)
+    $("viewportResizeHandle").setAttribute("aria-valuemin", min)
+    $("viewportResizeHandle").setAttribute("aria-valuemax", max)
+  }
+  function applyViewportWidth(width) {
+    if (state.exporting) return
+    const { min, max } = viewportWidthBounds()
+    state.viewportWidth = width === null ? null : Math.round(Math.max(min, Math.min(max, width)))
+    $("chartArea").style.width = state.viewportWidth === null ? "" : state.viewportWidth + "px"
+    syncViewportControls()
+    if (state.chart) updatePlayhead(state.curSec, true)
+    $("viewportWidthStatus").textContent = "可视宽度已应用，导出画面同步。"
+  }
+  function applyViewportWidthInput() {
+    if (!$("viewportWidthInput").reportValidity()) return
+    applyViewportWidth(Number($("viewportWidthInput").value))
+  }
+  $("viewportWidthApplyBtn").addEventListener("click", applyViewportWidthInput)
+  $("viewportWidthInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); applyViewportWidthInput() }
+  })
+  $("viewportWidthResetBtn").addEventListener("click", () => applyViewportWidth(null))
+  let viewportResize = null
+  function endViewportResize(e) {
+    if (!viewportResize) return
+    if (e && e.type === "pointerup") applyViewportWidth(viewportResize.width + e.clientX - viewportResize.x)
+    viewportResize = null
+    state.resizingViewport = false
+    document.body.classList.remove("resizing-viewport")
+  }
+  $("viewportResizeHandle").addEventListener("pointerdown", e => {
+    if (state.exporting || e.button !== 0) return
+    e.preventDefault()
+    viewportResize = { id: e.pointerId, x: e.clientX, width: $("chartArea").getBoundingClientRect().width }
+    state.resizingViewport = true
+    document.body.classList.add("resizing-viewport")
+    e.currentTarget.setPointerCapture(e.pointerId)
+  })
+  $("viewportResizeHandle").addEventListener("pointermove", e => {
+    if (viewportResize && e.pointerId === viewportResize.id) applyViewportWidth(viewportResize.width + e.clientX - viewportResize.x)
+  })
+  for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) $("viewportResizeHandle").addEventListener(event, endViewportResize)
+  $("viewportResizeHandle").addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault()
+      applyViewportWidth($("chartArea").getBoundingClientRect().width + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 50 : 10))
+    }
+  })
+  window.addEventListener("blur", endViewportResize)
+  window.addEventListener("resize", () => { if (!state.exporting) applyViewportWidth(state.viewportWidth) })
+  syncViewportControls()
 
   let songAudio = null  // 载入的曲子
   let songVolume = 1    // 曲子音量
@@ -1197,6 +1578,14 @@
     stopSong()
     cancelAnimationFrame(state.rafId)
     state.chart = null
+    state._parseRaw = undefined
+    state._parseKind = undefined
+    state.meterChanges = []
+    clearMeterJsonInput()
+    state.selectedMeterBeat = null
+    state.playBeat = 0
+    $("meterStatus").textContent = ""
+    syncMeterEditor()
     state.curSec = 0
     state.playFromSec = 0
     state.wallStartPerf = 0
@@ -1324,67 +1713,33 @@
     const ppb = state.pixelsPerBeat
     const minBeat = 0
     const playEndBeat = chart.playEndBeat
-    const maxBeat = Math.ceil(playEndBeat) + 8  // 额外8拍留白确保 scrollLeft 有足够空间
-    const widthPx = Math.max(6000, (maxBeat - minBeat) * ppb + 800)
-    timeline.style.minWidth = widthPx + "px"
+    const maxBeat = Math.ceil(playEndBeat) + 8
+    timeline._maxBeat = maxBeat
+    updateTimelineWidth()
 
-    // 小节线
-    const beatUnit = chart.beatUnit || 4
-    const beatStep = 4 / beatUnit
-    const subStep = beatStep / state.subdivision
-    const barBeats = chart.barBeats || 4
-    const firstBar = Math.floor(minBeat / barBeats)
-    const lastBar = Math.ceil(maxBeat / barBeats)
-
-    // 画拍线
-    {
-      const startN = Math.ceil(minBeat / beatStep)
-      const endN = Math.floor(maxBeat / beatStep)
-      for (let n = startN; n <= endN; n++) {
-        const beat = n * beatStep
-        const isBar = Math.abs(beat / barBeats - Math.round(beat / barBeats)) < 1e-6
-      if (isBar) continue
-      const x = (beat - minBeat) * ppb
-      const bl = document.createElement("div")
-      bl.className = "bar-line beat"
-      bl.style.left = x + "px"
-      timeline.appendChild(bl)
-      }
-    }
-
-    // 画小节线
-    for (let b = firstBar; b <= lastBar; b++) {
-      const barBeat = b * barBeats
-      if (barBeat < minBeat - 0.01 || barBeat > maxBeat + 0.01) continue
-      const x = (barBeat - minBeat) * ppb
-      const isHeavy = (b % 2 == 0)
+    forEachMeterGrid(chart, minBeat, maxBeat, state.subdivision, function (point) {
+      const x = (point.beat - minBeat) * ppb
       const line = document.createElement("div")
-      line.className = "bar-line" + (isHeavy ? " heavy" : "")
+      line.className = point.kind === "sub" ? "sub-line" : point.kind === "beat" ? "bar-line beat" : "bar-line" + (point.bar % 2 === 0 ? " heavy" : "")
       line.style.left = x + "px"
+      line.dataset.beat = point.beat
       timeline.appendChild(line)
-      // 拍号编号
-      const lbl = document.createElement("div")
-      lbl.className = "bar-label"
-      lbl.style.left = x + "px"
-      lbl.textContent = b
-      timeline.appendChild(lbl)
-    }
-
-    // 2) 画细分线
-    {
-      const startN = Math.ceil(minBeat / subStep)
-      const endN = Math.floor(maxBeat / subStep)
-      for (let n = startN; n <= endN; n++) {
-        const beat = n * subStep
-        const isBeat = Math.abs(beat / beatStep - Math.round(beat / beatStep)) < 1e-6
-        if (isBeat) continue
-      const x = (beat - minBeat) * ppb
-      const sl = document.createElement("div")
-      sl.className = "sub-line"
-      sl.style.left = x + "px"
-      timeline.appendChild(sl)
+      if (point.kind === "bar") {
+        const label = document.createElement("div")
+        label.className = "bar-label"
+        label.style.left = x + "px"
+        label.textContent = point.bar
+        timeline.appendChild(label)
       }
-    }
+    })
+    chart.meterSegments.forEach(function (meter, i) {
+      if (i === 0) return
+      const tag = document.createElement("div")
+      tag.className = "meter-tag"
+      tag.style.left = (meter.startBeat - minBeat) * ppb + "px"
+      tag.textContent = `${meter.beatsPerBar}/${meter.beatUnit}`
+      timeline.appendChild(tag)
+    })
 
     // 变速标记线
     chart.bpmSegments.forEach(function (s, i) {
@@ -1410,6 +1765,13 @@
       el.style.left = x + "px"
       el.dataset.beat = nt.beatVal
       el.dataset.chord = nt.chordCount
+      el.classList.toggle("selected", state.selectedMeterBeat !== null && Math.abs(nt.beatVal - state.selectedMeterBeat) < 1e-6)
+      el.title = `第 ${formatMeterBeat(nt.beatVal)} 拍`
+      if (chart.format === "rotaeno") {
+        el.classList.add("meter-selectable")
+        el.title += " · 点击设置该节点拍号"
+        el.addEventListener("click", () => selectMeterBeat(nt.beatVal))
+      }
       const shapeInner = document.createElement("div")
       shapeInner.className = "shape"
       //  附点 只显示 ·，不跟随染色组
@@ -1445,7 +1807,7 @@
     timeline._hiddenIdx = 0
 
     state.lastShownBpm = Math.round(chart.bpmFirst)
-    $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(chart.totalSeconds)
+    $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(chart.playEndSeconds)
     $("noteCount").textContent = chart.notes.length == chart.rawTapCount
       ? String(chart.notes.length)
       : chart.notes.length + " / " + chart.rawTapCount
@@ -1458,6 +1820,7 @@
     $("chordBtn").disabled = false
     $("bpmAnimBtn").disabled = false
     $("exportBtn").disabled = false
+    syncMeterEditor()
   }
 
 
@@ -1507,9 +1870,11 @@
     // 用 BPM 反查当前拍
     const beat = secondToBeat(currentSec, chart.bpmSegments)
     state.curSec = currentSec  // 同步 curSec，保证状态与播放头一致
-    $("timeVal").textContent = fmtTime(currentSec) + " / " + fmtTime(chart.totalSeconds)
+    $("timeVal").textContent = fmtTime(currentSec) + " / " + fmtTime(chart.playEndSeconds)
     $("beatVal").textContent = beat.toFixed(2)
     state.playBeat = beat
+    const meter = meterAtBeat(chart, beat)
+    $("currentMeter").textContent = `${meter.beatsPerBar}/${meter.beatUnit}`
 
     const roundedBpm = Math.round(bpmAt(beat))
     if (roundedBpm !== state.lastShownBpm) {
@@ -1532,6 +1897,7 @@
       const judgeCenterInWrap = (headRect.left + headRect.width / 2) - wrapRect.left
       const targetScrollLeft = (timelineMarginLeft - judgeCenterInWrap) + (beat - minBeat) * ppb
       wrap.scrollLeft = Math.max(0, targetScrollLeft)
+      state.autoScrollLeft = wrap.scrollLeft
     }
 
     const noteEls = timeline._noteEls
@@ -1575,6 +1941,7 @@
 
   function play() {
     if (!state.chart || state.playing) return
+    state.curSec = Math.min(state.curSec, state.chart.playEndSeconds)
     state.playFromSec = state.curSec
     state.wallStartPerf = performance.now()
     state.playing = true
@@ -1615,24 +1982,43 @@
 
 
   $("fileInput").addEventListener("change", function (e) {
+    if (state.exporting) return
     const f = e.target.files[0]
+    e.target.value = ""
     if (!f) return
-    $("fileLabel").firstChild.textContent = f.name + " "
     const reader = new FileReader()
     reader.onload = function (ev) {
       try {
         // 解析失败时把原文文本传下去，由适配器按内容识别
+        if (state.exporting) return
         const text = String(ev.target.result).replace(/^\uFEFF/, "")
         let raw
         try { raw = JSON.parse(text) } catch (e2) { raw = text }
         // 扩展名传给解析器分发格式
         const ext = (f.name.split(".").pop() || "").toLowerCase()
-        state._parseRaw = raw; state._parseKind = ext
-        const chart = parseChart(raw, { kind: ext, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const options = chartParseOptions(ext)
+        options.meterChanges = []
+        // Rotaeno 没有小节信息，每次导入都从 4/4 开始手动标注。
+        if (ext === "txt" || (typeof isRotaenoChart === "function" && isRotaenoChart(raw))) { options.beatsPerBar = 4; options.beatUnit = 4 }
+        const chart = parseChart(raw, options)
         if (!chart.notes.length) {
           alert("未在谱面中找到note！")
           return
         }
+        pause()
+        state._parseRaw = raw; state._parseKind = ext
+        state.meterChanges = []
+        clearMeterJsonInput()
+        state.selectedMeterBeat = null
+        state.beatsPerBar = options.beatsPerBar
+        state.beatUnit = options.beatUnit
+        $("beatsPerBarInput").value = state.beatsPerBar
+        $("beatUnitInput").value = state.beatUnit
+        $("meterBeatInput").value = 0
+        $("meterNumeratorInput").value = state.beatsPerBar
+        $("meterDenominatorInput").value = state.beatUnit
+        $("meterStatus").textContent = ""
+        $("fileLabel").firstChild.textContent = f.name + " "
         state.chart = chart
         renderTimeline()
         reset()
@@ -1645,6 +2031,7 @@
   })
 
   $("demoBtn").addEventListener("click", async function () {
+    if (state.exporting) return
     // 尝试fetch test目录的示例谱
     try {
       const resp = await fetch("./test/1786750493.json", { cache: "no-store" })
@@ -1652,8 +2039,16 @@
       const text = await resp.text()
       let raw
       try { raw = JSON.parse(text) } catch (e) { raw = text }
+      const options = chartParseOptions()
+      options.kind = undefined
+      options.meterChanges = []
+      const chart = parseChart(raw, options)
+      pause()
       state._parseRaw = raw; state._parseKind = undefined
-      const chart = parseChart(raw, { showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+      state.meterChanges = []
+      clearMeterJsonInput()
+      state.selectedMeterBeat = null
+      $("meterStatus").textContent = ""
       state.chart = chart
       renderTimeline()
       reset()
@@ -1681,12 +2076,13 @@
   document.body.classList.toggle("show-chords", state.showChords)
 
   $("dragBtn").addEventListener("click", function () {
+    if (state.exporting) return
     state.dragMode = DRAG_MODES[(DRAG_MODES.indexOf(state.dragMode) + 1) % DRAG_MODES.length]
     applyDragMode()
     // 如果当前有谱面数据用解析时保存的raw+kind重跑parseChart
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, chartParseOptions())
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1700,12 +2096,13 @@
 
   // 长条尾部开关
   $("holdTailBtn").addEventListener("click", function () {
+    if (state.exporting) return
     state.showHoldTail = !state.showHoldTail
     $("holdTailBtn").classList.toggle("active", state.showHoldTail)
     try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, chartParseOptions())
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1721,6 +2118,7 @@
   $("beatsPerBarInput").value = state.beatsPerBar
   $("beatUnitInput").value = state.beatUnit
   function applyBeatsPerBar() {
+    if (state.exporting) return
     const input = $("beatsPerBarInput")
     let val = parseInt(input.value)
     if (!val || val < 1) val = 4
@@ -1728,9 +2126,10 @@
     input.value = val
     if (val == state.beatsPerBar) return
     state.beatsPerBar = val
+    syncMeterEditor()
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, chartParseOptions())
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1742,6 +2141,7 @@
     }
   }
   function applyBeatUnit() {
+    if (state.exporting) return
     const input = $("beatUnitInput")
     let val = parseInt(input.value)
     if (!val || val < 1) val = 4
@@ -1749,9 +2149,10 @@
     input.value = val
     if (val == state.beatUnit) return
     state.beatUnit = val
+    syncMeterEditor()
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit })
+        const chart = parseChart(state._parseRaw, chartParseOptions())
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -1860,15 +2261,34 @@
     if (e.target == $("exportModal")) $("exportModal").classList.remove("open")
   })
 
+  function showExportStartupError(message) {
+    $("exportProgressPanel").hidden = false
+    $("exportProgressPanel").dataset.status = "failed"
+    $("exportProgressStage").textContent = message
+    $("exportProgressBar").value = 0
+    $("exportProgressPercent").textContent = "导出失败"
+    $("exportCancelBtn").hidden = true
+    $("exportDismissBtn").hidden = false
+  }
+
   $("modalGoBtn").addEventListener("click", function () {
     $("exportModal").classList.remove("open")
+    if (typeof startExport !== "function") {
+      showExportStartupError("导出模块加载失败，请刷新页面后重试，并检查 chart-export.js 是否可访问。")
+      return
+    }
     startExport({
       bg: $("optBg").value,
       panelTransparent: $("optPanel").checked,
       fps: parseInt($("optFps").value, 10),
       sr: parseInt($("optSr").value, 10),
       fmt: $("optFmt").value
-    })
+    }).catch(err => showExportStartupError("无法开始导出：" + err.message))
+  })
+
+  $("exportCancelBtn").addEventListener("click", () => { if (typeof cancelExport === "function") cancelExport() })
+  $("exportDismissBtn").addEventListener("click", function () {
+    if (!state.exporting) $("exportProgressPanel").hidden = true
   })
 
   $("speedSel").addEventListener("change", function (e) {
@@ -1890,8 +2310,14 @@
   /* 拖动时间轴定位播放头：时间/拍/BPM/音符显隐实时同步，
      播放从当前位置继续；播放中 autoScroll 回写的 scroll 事件忽略 */
   $("canvasWrap").addEventListener("scroll", function () {
-    if (!state.chart || state.playing) return
+    if (!state.chart || state.playing || state.resizingViewport) return
     const wrap = $("canvasWrap")
+    // 自动定位的 scroll 事件不作为手动拖动，避免像素取整改变播放位置。
+    if (state.autoScrollLeft !== null) {
+      const expected = state.autoScrollLeft
+      state.autoScrollLeft = null
+      if (Math.abs(wrap.scrollLeft - expected) < 0.01) return
+    }
     const timeline = $("timeline")
     const minBeat = timeline._minBeat || 0
     const ppb = state.pixelsPerBeat
@@ -1922,6 +2348,7 @@
   })
 
   document.addEventListener("keydown", function (e) {
+    if (e.target.closest("input, select, textarea, button, [contenteditable]")) return
     if (state.exporting) {
       if (e.code == "Space" || e.code == "KeyR") e.preventDefault()
       if (e.code == "Space") cancelExport()
