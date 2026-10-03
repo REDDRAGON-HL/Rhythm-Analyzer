@@ -45,14 +45,101 @@ const EXPORT_VALUE_COLORS = {
 
 let exportCanvas = null, exportCtx = null, exportW = 0, exportH = 0
 let exportWorker = null
+let exportWorkerError = null
+const EXPORT_RESOURCE_BASE = new URL(".", document.currentScript.src)
 let exportCancelFlag = false
 let exportPendingAcks = 0
+let exportProgressCurrent = 0
+
+function setExportProgress(percent, message) {
+  const panel = $("exportProgressPanel")
+  panel.hidden = false
+  panel.dataset.status = "running"
+  $("exportDismissBtn").hidden = true
+  $("exportCancelBtn").hidden = false
+  $("exportCancelBtn").disabled = exportCancelFlag
+  $("exportProgressStage").textContent = exportCancelFlag ? "正在取消，请稍候…" : message
+  if (Number.isFinite(percent)) {
+    const value = Math.max(exportProgressCurrent, Math.min(100, percent))
+    exportProgressCurrent = value
+    $("exportProgressBar").value = value
+    $("exportProgressPercent").textContent = Math.round(value) + "%"
+  } else {
+    $("exportProgressBar").removeAttribute("value")
+    $("exportProgressPercent").textContent = "处理中…"
+  }
+  $("exportBtn").textContent = exportCancelFlag ? "正在取消…" : "取消导出"
+}
+
+function finishExportProgress(status, message) {
+  $("exportProgressPanel").hidden = false
+  $("exportProgressPanel").dataset.status = status
+  $("exportProgressStage").textContent = message
+  $("exportCancelBtn").hidden = true
+  $("exportDismissBtn").hidden = false
+  if (status === "complete") {
+    $("exportProgressBar").value = 100
+    $("exportProgressPercent").textContent = "100%"
+  } else {
+    $("exportProgressBar").value = exportProgressCurrent
+    $("exportProgressPercent").textContent = status === "cancelled" ? "已取消" : "导出失败"
+  }
+}
 
 // 取消导出
 function cancelExport() {
   if (!state.exporting) return
   exportCancelFlag = true
-  $("exportBtn").textContent = "正在取消…"
+  setExportProgress(null, "正在取消，请稍候…")
+}
+
+async function createExportWorker() {
+  const files = ["lib/mp4-muxer.min.js", "lib/webm-muxer.min.js", "export-worker.js"]
+  const controller = new AbortController()
+  const fetchTimer = setTimeout(() => controller.abort(), 15000)
+  let sources
+  try {
+    sources = await Promise.all(files.map(async file => {
+      try {
+        const response = await fetch(new URL(file, EXPORT_RESOURCE_BASE), {
+          cache: "no-store", signal: controller.signal
+        })
+        if (!response.ok) throw new Error("HTTP " + response.status)
+        return await response.text()
+      } catch (err) {
+        throw new Error("无法读取导出文件 " + file + "：" + (err.name === "AbortError" ? "加载超时" : err.message))
+      }
+    }))
+  } finally {
+    clearTimeout(fetchTimer)
+    controller.abort()
+  }
+  if (exportCancelFlag) return null
+  const url = URL.createObjectURL(new Blob(sources.map(source => source + "\n;\n"), { type: "text/javascript" }))
+  let worker
+  try {
+    worker = new Worker(url)
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("导出 Worker 启动超时，请检查浏览器是否允许后台脚本运行")), 10000)
+      const settle = (err) => {
+        clearTimeout(timer)
+        worker.onmessage = null
+        worker.onerror = null
+        err ? reject(err) : resolve()
+      }
+      worker.onmessage = e => {
+        if (e.data.type === "loaded") settle()
+        else if (e.data.type === "error") settle(new Error(e.data.message))
+      }
+      worker.onerror = e => settle(new Error(e.message || "浏览器拒绝启动导出 Worker（后台脚本）"))
+    })
+    return worker
+  } catch (err) {
+    if (worker) worker.terminate()
+    throw err
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 // worker 消息分发
@@ -79,6 +166,7 @@ function attachExportWorker(onError) {
       console.warn("导出:", d.message)
     } else if (d.type == "error") {
       const err = new Error(d.message)
+      exportWorkerError = err
       onError(err)
       rejectExportWaiters(err)
     } else if (exportWaiters[d.type] && exportWaiters[d.type].length) {
@@ -86,15 +174,20 @@ function attachExportWorker(onError) {
     }
   }
   exportWorker.onerror = function (e) {
-    const err = new Error(e.message || "worker 加载失败")
+    const err = new Error(e.message || "导出 Worker 运行失败（浏览器未提供具体原因）")
+    exportWorkerError = err
     onError(err)
     rejectExportWaiters(err)
   }
 }
 // 背压，当在途消息太多时等worker消化
 function awaitExportAcks() {
-  return new Promise(function (resolve) {
-    const check = () => (exportPendingAcks <= 4 ? resolve() : setTimeout(check, 4))
+  return new Promise(function (resolve, reject) {
+    const check = () => {
+      if (exportWorkerError) return reject(exportWorkerError)
+      if (exportCancelFlag || exportPendingAcks <= 4) return resolve()
+      setTimeout(check, 4)
+    }
     check()
   })
 }
@@ -272,12 +365,15 @@ async function exportPngSequence(chart, outputDur) {
     const blob = await new Promise(r => exportCanvas.toBlob(r, "image/png"))
     files.push({ name: "frame_" + String(k).padStart(5, "0") + ".png", data: new Uint8Array(await blob.arrayBuffer()) })
     if (k % 10 == 0) {
-      $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%"
+      setExportProgress(5 + (k + 1) / totalFrames * 80, "渲染 PNG 帧 " + (k + 1) + "/" + totalFrames)
       await new Promise(r => setTimeout(r, 0))
     }
   }
   if (exportCancelFlag) return
+  setExportProgress(88, "合成 PNG 序列音轨…")
+  await new Promise(r => setTimeout(r, 0))
   const mixed = await mixExportAudio(outputDur)
+  if (exportCancelFlag) return
   if (mixed) files.push({ name: "audio.wav", data: audioBufferToWav(mixed) })
   files.push({
     name: "info.txt",
@@ -286,6 +382,9 @@ async function exportPngSequence(chart, outputDur) {
       "帧数: " + totalFrames + "\n\n将 frame_*.png 按序列导入剪辑软件（按文件名顺序），并设置序列帧率为 " + EXPORT_FPS + "。\n含透明通道，叠加在其他素材上即可。\naudio.wav 为音轨。\n"
     )
   })
+  setExportProgress(95, "打包 PNG 序列 ZIP…")
+  await new Promise(r => setTimeout(r, 0))
+  if (exportCancelFlag) return
   const zip = makeZip(files)
   const a = document.createElement("a")
   a.href = URL.createObjectURL(zip)
@@ -318,7 +417,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
     return URL.createObjectURL(new Blob([b], { type }))
   }
 
-  $("exportBtn").textContent = "导出中… 加载 ffmpeg-core"
+  setExportProgress(5, "加载透明 MOV 导出引擎…")
   await new Promise(r => setTimeout(r, 0))
 
   // 核心资源url
@@ -402,15 +501,15 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
         await inst.writeFile(fname, u8)
 
         if (idx % 5 == 0) {
-          const prog = Math.min(75, Math.round((idx + 1) / totalFrames * 75))
-          $("exportBtn").textContent = prog + "% 渲染帧 " + (idx + 1) + "/" + totalFrames
+          const prog = 5 + (idx + 1) / totalFrames * 70
+          setExportProgress(prog, "渲染 MOV 帧 " + (idx + 1) + "/" + totalFrames)
           await new Promise(r => setTimeout(r, 0))
         }
       }
 
       if (exportCancelFlag) return
 
-      $("exportBtn").textContent = "导出中… 80% 写入音频"
+      setExportProgress(80, "写入音频…")
       await new Promise(r => setTimeout(r, 0))
 
       const hasAudio = !!mixed
@@ -422,7 +521,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       if (exportCancelFlag) return
 
       // 一次 exec
-      $("exportBtn").textContent = "导出中… 90% 编码 MOV"
+      setExportProgress(null, "编码透明 MOV…")
       await new Promise(r => setTimeout(r, 0))
 
       const onePassArgs = []
@@ -469,7 +568,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       }
       if (hasAudio) await deleteFile(inst, "audio.wav")
 
-      $("exportBtn").textContent = "导出中… 96% 读取产物"
+      setExportProgress(96, "读取 MOV 文件…")
       await new Promise(r => setTimeout(r, 0))
       const r = await inst.readFile("out.mov")
       if (!(r && r.byteLength > 0)) throw new Error("编码产物为空（MOV PNG 一次编码失败）")
@@ -483,7 +582,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
     if (exportCancelFlag) return
 
     // 按需格式转换
-    $("exportBtn").textContent = "导出中… 98% 输出文件"
+    setExportProgress(98, "准备下载文件…")
     await new Promise(r => setTimeout(r, 0))
     if (!finalU8 || finalU8.length == 0) throw new Error("最终产物为空")
     let blob = new Blob([finalU8], { type: "video/quicktime" })
@@ -543,7 +642,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
     return exitCode
   }
 
-  $("exportBtn").textContent = "导出中… 加载转码引擎"
+  setExportProgress(null, "加载格式转换引擎…")
   await new Promise(r => setTimeout(r, 0))
 
   const coreURL = await blobURL(new URL("./lib/ffmpeg/core/ffmpeg-core.esm.js", location.href).href, "text/javascript")
@@ -669,7 +768,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
         return srcBlob
     }
 
-    $("exportBtn").textContent = "导出中… 格式转换中"
+    setExportProgress(null, "转换为 " + targetFmt.toUpperCase() + "…")
     await new Promise(r => setTimeout(r, 0))
     await runExecLocal(args, "→" + targetFmt)
     if (exportCancelFlag) return srcBlob
@@ -748,47 +847,31 @@ function drawExportFrame(sec) {
   const bMin = beat - (judgeX + 20) / ppb
   const bMax = beat + (W + 20) / ppb
 
-  // 拍号
-  const beatUnit = chart.beatUnit || 4
-  const beatStep = 4 / beatUnit
-  const subStep = beatStep / (state.subdivision || 4)
-  const barBeats = chart.barBeats || 4
-
-  // 线
-  ctx.fillStyle = "rgba(255,255,255,0.06)"
-  {
-    const startN = Math.ceil(bMin / subStep)
-    const endN = Math.floor(bMax / subStep)
-    for (let n = startN; n <= endN; n++) {
-      const b = n * subStep
-      const isBeat = Math.abs(b / beatStep - Math.round(b / beatStep)) < 1e-6
-      if (isBeat) continue
-      ctx.fillRect(Math.round(xOf(b)), y0 + 40, 1, 60)
-    }
-  }
-  ctx.fillStyle = "rgba(255,255,255,0.2)"
-  {
-    const startN = Math.ceil(bMin / beatStep)
-    const endN = Math.floor(bMax / beatStep)
-    for (let n = startN; n <= endN; n++) {
-      const b = n * beatStep
-      const isBar = Math.abs(b / barBeats - Math.round(b / barBeats)) < 1e-6
-      if (isBar) continue
-    ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
-  }
-  }
   ctx.font = "700 13px " + EXPORT_FONT()
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  const firstBar = Math.ceil(bMin / barBeats)
-  const lastBar = Math.floor(bMax / barBeats)
-  for (let bar = firstBar; bar <= lastBar; bar++) {
-    const x = Math.round(xOf(bar * barBeats))
-    ctx.fillStyle = bar % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
-    ctx.fillRect(x, y0 + 32, 1, 76)
-    ctx.fillStyle = "rgba(255,255,255,0.75)"
-    ctx.fillText(String(bar), x, y0 + 14)
-  }
+  forEachMeterGrid(chart, bMin, bMax, state.subdivision, function (point) {
+    const x = Math.round(xOf(point.beat))
+    if (point.kind === "sub") {
+      ctx.fillStyle = "rgba(255,255,255,0.06)"
+      ctx.fillRect(x, y0 + 40, 1, 60)
+    } else {
+      ctx.fillStyle = point.kind === "beat" ? "rgba(255,255,255,0.2)" : point.bar % 2 === 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+      ctx.fillRect(x, y0 + 32, 1, 76)
+      if (point.kind === "bar") {
+        ctx.fillStyle = "rgba(255,255,255,0.75)"
+        ctx.fillText(String(point.bar), x, y0 + 14)
+      }
+    }
+  })
+  chart.meterSegments.forEach(function (meter, i) {
+    if (i === 0) return
+    const x = xOf(meter.startBeat)
+    if (x < -20 || x > W + 20) return
+    ctx.font = "700 11px " + EXPORT_FONT()
+    ctx.fillStyle = "#ffcc80"
+    ctx.fillText(`${meter.beatsPerBar}/${meter.beatUnit}`, x, y0 + 31)
+  })
   chart.bpmSegments.forEach(function (s, i) {
     if (i == 0) return
     const x = Math.round(xOf(s.startBeat))
@@ -915,17 +998,21 @@ function drawExportFrame(sec) {
 function restoreAfterExport() {
   for (const k of Object.keys(exportWaiters)) delete exportWaiters[k]
   exportPendingAcks = 0
+  exportWorkerError = null
   state.exporting = false
+  syncMeterEditor()
   exportCancelFlag = false
   $("exportBtn").textContent = "导出"
   $("playBtn").disabled = !state.chart
   $("pauseBtn").disabled = true
   $("resetBtn").disabled = !state.chart
   $("speedSel").disabled = false
+  $("flowSpeed").disabled = false
 }
 
 async function startExport(cfg) {
   if (!state.chart || state.exporting) return
+  endViewportResize()
   const c = cfg || {}
   exportBg = c.bg || "black"
   exportFmt = c.fmt || "source"
@@ -934,14 +1021,16 @@ async function startExport(cfg) {
   EXPORT_SR = (exportBg == "transparent" || exportBg == "pngseq") ? 48000 : (c.sr || 48000)
   const isWebm = exportBg == "transparent"
 
+  exportProgressCurrent = 0
   if (exportBg == "black" && (!window.VideoEncoder || !window.AudioEncoder)) {
-    alert("当前浏览器不支持 MP4 导出（缺少 WebCodecs）\n可尝试透明 MOV PNG 或 PNG 序列导出，或换用 Chrome/Edge 94+")
+    finishExportProgress("failed", "当前浏览器不支持 MP4 导出（缺少 WebCodecs）。请选择透明 MOV / PNG 序列，或使用支持 WebCodecs 的浏览器。")
     return
   }
-  // 自定义字体就绪后再逐帧渲染
-  try { await document.fonts.ready } catch (e) { }
+  pause()
   state.exporting = true
+  syncMeterEditor()
   exportCancelFlag = false
+  exportProgressCurrent = 0
   // 预置为谱面首个 BPM：置 null 会让首帧被判成"切换"，导出视频开头多出一次动效
   exportLastShownBpm = Math.round(state.chart.bpmFirst)
   exportBpmFlashStartSec = -1
@@ -949,17 +1038,24 @@ async function startExport(cfg) {
   $("pauseBtn").disabled = true
   $("resetBtn").disabled = true
   $("speedSel").disabled = true
-  $("exportBtn").textContent = "导出中… 0%"
+  $("flowSpeed").disabled = true
+  setExportProgress(0, "准备导出…")
 
   const chart = state.chart
   const speed = state.speed
   const outputDur = chart.playEndSeconds / speed
   const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
+  let failed = false
 
   try {
+    // 先显示进度浮层，让浏览器绘制；字体加载和音频合成也有可见状态。
+    await new Promise(r => setTimeout(r, 0))
+    try { await document.fonts.ready } catch (e) { }
+    if (exportCancelFlag) return
     // 透明mov，ffmpeg.wasm单实例一次性编码
     if (exportBg == "transparent") {
       setupExportCanvas()
+      setExportProgress(2, "合成 MOV 音轨…")
       const mixed = await mixExportAudio(outputDur)
       if (exportCancelFlag) return
       await exportWebmTransparent(chart, outputDur, mixed)
@@ -974,8 +1070,15 @@ async function startExport(cfg) {
     }
 
     // 1) 画布 + worker + 编码器初始化
+    setExportProgress(2, "初始化视频编码器…")
     setupExportCanvas()
-    exportWorker = new Worker("export-worker.js")
+    setExportProgress(2, "加载视频编码脚本…")
+    exportWorkerError = null
+    exportWorker = await createExportWorker()
+    if (exportCancelFlag) {
+      if (exportWorker) { exportWorker.terminate(); exportWorker = null }
+      return
+    }
     let fatal = null
     attachExportWorker((err) => { fatal = fatal || err; })
     const failFast = () => { if (fatal) throw fatal; }
@@ -993,6 +1096,7 @@ async function startExport(cfg) {
     await readyP
     failFast()
 
+    setExportProgress(5, "合成视频音轨…")
     const mixed = await mixExportAudio(outputDur)
 
     // 逐帧渲染，第k帧画谱面时间(k/60)*speed的状态
@@ -1012,7 +1116,7 @@ async function startExport(cfg) {
       await awaitExportAcks()
       // 定期让出主线程更新进度
       if (k % 30 == 0) {
-        $("exportBtn").textContent = "导出中… " + Math.round(k / totalFrames * 100) + "%（点击取消）"
+        setExportProgress(5 + (k + 1) / totalFrames * 85, "渲染视频帧 " + (k + 1) + "/" + totalFrames)
         await new Promise((r) => setTimeout(r, 0))
       }
     }
@@ -1025,14 +1129,17 @@ async function startExport(cfg) {
     }
 
     // 收尾，音频分块编码，封装成 mp4
+    setExportProgress(92, "完成视频编码…")
     const vdP = exportAwait("video-done")
     exportWorker.postMessage({ type: "flush-video" })
     await vdP
     failFast()
 
+    setExportProgress(94, "编码音频…")
     if (mixed) await sendExportAudio(mixed)
     failFast()
 
+    setExportProgress(96, "封装视频文件…")
     const resultP = exportAwait("result")
     exportWorker.postMessage({ type: "finish" })
     const result = await resultP
@@ -1051,6 +1158,7 @@ async function startExport(cfg) {
             exportFmt == "avi" ? "avi" :
               (exportFmt == "webm8" || exportFmt == "webm9") ? "webm" :
                 (isWebm ? "webm" : "mp4")
+    setExportProgress(99, "准备下载文件…")
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
     a.download = exportFileName(outExt)
@@ -1058,11 +1166,14 @@ async function startExport(cfg) {
     a.click()
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000)
   } catch (err) {
+    failed = true
     if (exportWorker) { try { exportWorker.terminate(); } catch (e2) { /* ignore */ } exportWorker = null; }
     const msg = (err && err.message) || (typeof err == 'string' ? err : String(err)) || '未知错误'
-    alert("导出失败: " + msg)
+    finishExportProgress("failed", "导出失败：" + msg)
     console.error("导出失败：", err)
   } finally {
+    if (exportCancelFlag) finishExportProgress("cancelled", "导出已取消。")
+    else if (!failed) finishExportProgress("complete", "导出完成，已触发文件下载。")
     restoreAfterExport()
   }
 }

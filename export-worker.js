@@ -8,8 +8,8 @@
    消息严格串行处理：handler 是 async 的，若并发进入下一条消息，
      背压encodeQueueSize会让多帧的唤醒顺序错乱
    ========================================================= */
-importScripts("lib/mp4-muxer.min.js")
-importScripts("lib/webm-muxer.min.js")
+if (!self.Mp4Muxer) importScripts("lib/mp4-muxer.min.js")
+if (!self.WebMMuxer) importScripts("lib/webm-muxer.min.js")
 
 let muxer = null
 let videoEncoder = null
@@ -23,6 +23,7 @@ self.onmessage = function (e) {
   msgQueue.push(e.data)
   if (!processing) processQueue()
 }
+postMessage({ type: "loaded" })
 
 async function processQueue() {
   processing = true

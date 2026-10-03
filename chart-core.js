@@ -15,9 +15,10 @@
        musicDelayedEntry  可选，默认 false。true 时负偏移采用"等到入场点才起播"
                           （.mc 语义），false 时起播钳到 0（转换 json 的既有行为）
 
-   parseChart(raw, { kind }) 返回谱面对象：
+   parseChart(raw, { kind, beatsPerBar, beatUnit, meterChanges }) 返回谱面对象：
+     meterChanges: [{ startBeat, beatsPerBar, beatUnit }]，startBeat 为四分音符拍数
      {
-       meta, bpmSegments,
+       format, meta, bpmSegments, meterSegments,
        notes: [{ beatVal, second, colorInfo(组色), actualValueInfo(实际时值), beatLabel, column, chordCount }],
        totalBeats, chartEndBeat, playEndBeat, totalSeconds, playEndSeconds,
        bgmOffsetSec, musicDelayedEntry, bpmFirst, rawTapCount
@@ -53,6 +54,10 @@ function buildBpmSegments(timeList) {
 }
 
 function beatToSecond(beatVal, segs) {
+  if (beatVal < segs[0].startBeat) {
+    const first = segs[0]
+    return first.startTime + (beatVal - first.startBeat) * 60 / first.bpm
+  }
   for (const s of segs) {
     if (beatVal >= s.startBeat && beatVal < s.endBeat) {
       return s.startTime + (beatVal - s.startBeat) * 60 / s.bpm
@@ -249,6 +254,53 @@ function groupByNearestNeighbor(withBeat) {
 
 const chartAdapters = []
 
+function buildMeterSegments(beatsPerBar = 4, beatUnit = 4, changes = []) {
+  const byBeat = new Map([[0, { startBeat: 0, beatsPerBar, beatUnit }]])
+  for (const change of changes) {
+    const { startBeat, beatsPerBar: numerator, beatUnit: denominator } = change
+    if (!Number.isFinite(startBeat) || startBeat < 0
+      || !Number.isInteger(numerator) || numerator < 1 || numerator > 32
+      || !Number.isInteger(denominator) || denominator < 1 || denominator > 32) {
+      throw new Error("拍号节点需要非负拍数，以及 1 到 32 的整数分子、分母")
+    }
+    byBeat.set(startBeat, { startBeat, beatsPerBar: numerator, beatUnit: denominator })
+  }
+  const segments = Array.from(byBeat.values()).sort((a, b) => a.startBeat - b.startBeat)
+  segments.forEach((s, i) => {
+    s.barBeats = s.beatsPerBar * 4 / s.beatUnit
+    s.endBeat = i + 1 < segments.length ? segments[i + 1].startBeat : Infinity
+    const prev = segments[i - 1]
+    s.startBar = prev ? prev.startBar + Math.ceil((s.startBeat - prev.startBeat) / prev.barBeats - 1e-9) : 0
+  })
+  return segments
+}
+
+function meterAtBeat(chart, beat) {
+  const segments = chart.meterSegments
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (beat >= segments[i].startBeat) return segments[i]
+  }
+  return segments[0]
+}
+
+function forEachMeterGrid(chart, minBeat, maxBeat, subdivision, visit) {
+  const divisions = Math.max(1, Math.trunc(subdivision) || 1)
+  chart.meterSegments.forEach((s, index) => {
+    const lo = Math.max(minBeat, index === 0 ? -Infinity : s.startBeat)
+    const hi = Math.min(maxBeat, s.endBeat)
+    if (lo > hi) return
+    const step = 4 / s.beatUnit / divisions
+    const first = Math.ceil((lo - s.startBeat) / step - 1e-9)
+    const last = Math.floor((hi - s.startBeat) / step + 1e-9)
+    for (let n = first; n <= last; n++) {
+      const beat = s.startBeat + n * step
+      if (beat >= s.endBeat - 1e-9) break
+      const isBar = n % (s.beatsPerBar * divisions) === 0
+      visit({ beat, kind: isBar ? "bar" : n % divisions === 0 ? "beat" : "sub", bar: s.startBar + n / (s.beatsPerBar * divisions), meter: s })
+    }
+  })
+}
+
 // 新格式文件调用此函数注册，接口契约见文件头注释
 function registerChartAdapter(name, detect, extract) {
   chartAdapters.push({ name, detect, extract })
@@ -260,6 +312,14 @@ function registerChartAdapter(name, detect, extract) {
 function parseChart(raw, opts) {
   // 选格式适配器，抽取成统一中间结构
   const kind = opts && opts.kind
+  if (kind === "txt") {
+    if (typeof isRotaenoChart !== "function" || !chartAdapters.some(adapter => adapter.name === "rotaeno")) {
+      throw new Error("Rotaeno 解析模块未加载（rotaeno.js），无法检查或解析 TXT。请刷新本地页面，并确认 rotaeno.js 可访问。")
+    }
+    if (!isRotaenoChart(raw)) {
+      throw new Error("不是 Rotaeno 谱面：TXT 必须以 # Version 数字 开头，并包含 # BPM、# Note 分段")
+    }
+  }
   const adapter = chartAdapters.find(a => a.detect(raw, kind))
   if (!adapter) throw new Error("无法识别的谱面格式（没有适配器匹配该数据）")
   const { time, taps, bgmOffsetSec, musicDelayedEntry } = adapter.extract(raw)
@@ -396,15 +456,18 @@ function parseChart(raw, opts) {
   const beatsPerBar = (opts && opts.beatsPerBar > 0) ? opts.beatsPerBar : 4
   const beatUnit = (opts && opts.beatUnit > 0) ? opts.beatUnit : 4
   const barBeats = beatsPerBar * 4 / beatUnit
-  const endBar = withBeat.length ? Math.ceil(totalBeats / barBeats) : 0
-  const chartEndBeat = (endBar + 4) * barBeats
+  const meterSegments = buildMeterSegments(beatsPerBar, beatUnit, adapter.name === "rotaeno" ? opts && opts.meterChanges : undefined)
+  const endMeter = meterAtBeat({ meterSegments }, totalBeats)
+  const endBar = withBeat.length ? Math.ceil((totalBeats - endMeter.startBeat) / endMeter.barBeats - 1e-9) : 0
+  const chartEndBeat = endMeter.startBeat + (endBar + 4) * endMeter.barBeats
   // 总时长按谱面结尾小节算
   const totalSeconds = withBeat.length ? beatToSecond(chartEndBeat, segs) : 0
   // 再加1拍余量：结尾小节线滚过判定环圆心后停下
   const playEndBeat = chartEndBeat + 1
   const playEndSeconds = withBeat.length ? beatToSecond(playEndBeat, segs) : 0
 
-  return {
+  const chart = {
+    format: adapter.name,
     meta: raw.meta || {},
     bpmSegments: segs,
     notes,
@@ -412,6 +475,7 @@ function parseChart(raw, opts) {
     beatsPerBar,
     beatUnit,
     barBeats,
+    meterSegments,
     chartEndBeat,
     playEndBeat,
     totalSeconds,
@@ -421,4 +485,5 @@ function parseChart(raw, opts) {
     bpmFirst: time && time[0] ? time[0].bpm : 0,
     rawTapCount
   }
+  return chart
 }
