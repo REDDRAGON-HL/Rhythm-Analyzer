@@ -53,6 +53,7 @@ let exportProgressCurrent = 0
 
 function setExportProgress(percent, message) {
   const panel = $("exportProgressPanel")
+  if (!panel) return
   panel.hidden = false
   panel.dataset.status = "running"
   $("exportDismissBtn").hidden = true
@@ -72,8 +73,10 @@ function setExportProgress(percent, message) {
 }
 
 function finishExportProgress(status, message) {
-  $("exportProgressPanel").hidden = false
-  $("exportProgressPanel").dataset.status = status
+  const panel = $("exportProgressPanel")
+  if (!panel) return
+  panel.hidden = false
+  panel.dataset.status = status
   $("exportProgressStage").textContent = message
   $("exportCancelBtn").hidden = true
   $("exportDismissBtn").hidden = false
@@ -501,8 +504,8 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
         await inst.writeFile(fname, u8)
 
         if (idx % 5 == 0) {
-          const prog = 5 + (idx + 1) / totalFrames * 70
-          setExportProgress(prog, "渲染 MOV 帧 " + (idx + 1) + "/" + totalFrames)
+          const prog = Math.min(75, Math.round((idx + 1) / totalFrames * 75))
+          setExportProgress(5 + (idx + 1) / totalFrames * 70, "渲染 MOV 帧 " + (idx + 1) + "/" + totalFrames)
           await new Promise(r => setTimeout(r, 0))
         }
       }
@@ -800,7 +803,8 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
 function setupExportCanvas() {
   const box = document.querySelector(".chart-area")
   // 编码器要求宽高为偶数
-  exportW = Math.floor((box.clientWidth - EXPORT_CROP_L) / 2) * 2
+  const w = (typeof state == "object" && state && state.exportWidth > 0) ? state.exportWidth : 0
+  exportW = Math.floor((w > 0 ? w : (box.clientWidth - EXPORT_CROP_L)) / 2) * 2
   exportH = Math.floor(EXPORT_CROP_H / 2) * 2
   if (!exportCanvas) {
     exportCanvas = document.createElement("canvas")
@@ -847,31 +851,40 @@ function drawExportFrame(sec) {
   const bMin = beat - (judgeX + 20) / ppb
   const bMax = beat + (W + 20) / ppb
 
-  ctx.font = "700 13px " + EXPORT_FONT()
+  // 拍号
+  const beatUnit = chart.beatUnit || 4
+  const beatStep = 4 / beatUnit
+  const subStep = beatStep / (state.subdivision || 4)
+  const barBeats = chart.barBeats || 4
+
+  // 线
+  ctx.fillStyle = "rgba(255,255,255,0.06)"
+  if (typeof subLineBeats === "function") {
+    for (const b of subLineBeats(bMax)) {
+      if (b < bMin - 0.01) continue
+      ctx.fillRect(Math.round(xOf(b)), y0 + 40, 1, 60)
+    }
+  }
+  ctx.fillStyle = "rgba(255,255,255,0.2)"
+  if (typeof beatLineBeats === "function") {
+    for (const b of beatLineBeats(bMax)) {
+      if (b < bMin - 0.01) continue
+      ctx.fillRect(Math.round(xOf(b)), y0 + 32, 1, 76)
+    }
+  }
+  ctx.font = "700 " + (state.barFontSize || 13) + "px " + EXPORT_FONT()
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  forEachMeterGrid(chart, bMin, bMax, state.subdivision, function (point) {
-    const x = Math.round(xOf(point.beat))
-    if (point.kind === "sub") {
-      ctx.fillStyle = "rgba(255,255,255,0.06)"
-      ctx.fillRect(x, y0 + 40, 1, 60)
-    } else {
-      ctx.fillStyle = point.kind === "beat" ? "rgba(255,255,255,0.2)" : point.bar % 2 === 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
-      ctx.fillRect(x, y0 + 32, 1, 76)
-      if (point.kind === "bar") {
-        ctx.fillStyle = "rgba(255,255,255,0.75)"
-        ctx.fillText(String(point.bar), x, y0 + 14)
-      }
-    }
-  })
-  chart.meterSegments.forEach(function (meter, i) {
-    if (i === 0) return
-    const x = xOf(meter.startBeat)
-    if (x < -20 || x > W + 20) return
-    ctx.font = "700 11px " + EXPORT_FONT()
-    ctx.fillStyle = "#ffcc80"
-    ctx.fillText(`${meter.beatsPerBar}/${meter.beatUnit}`, x, y0 + 31)
-  })
+  const bars = (typeof barLineBeats === "function") ? barLineBeats(bMax) : [0]
+  for (let i = 0; i < bars.length; i++) {
+    const barBeat = bars[i]
+    if (barBeat < bMin - 0.01) continue
+    const x = Math.round(xOf(barBeat))
+    ctx.fillStyle = i % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+    ctx.fillRect(x, y0 + 32, 1, 76)
+    ctx.fillStyle = "rgba(255,255,255,0.75)"
+    ctx.fillText(String(i), x, y0 + 14)
+  }
   chart.bpmSegments.forEach(function (s, i) {
     if (i == 0) return
     const x = Math.round(xOf(s.startBeat))
@@ -929,7 +942,7 @@ function drawExportFrame(sec) {
     if (4 / nt.actualValueInfo.v <= 4) {
       const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
       ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
-      ctx.font = "700 11px " + EXPORT_FONT()
+      ctx.font = "700 " + (state.valueFontSize || 11) + "px " + EXPORT_FONT()
       ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 107)
     }
   }
@@ -1000,7 +1013,6 @@ function restoreAfterExport() {
   exportPendingAcks = 0
   exportWorkerError = null
   state.exporting = false
-  syncMeterEditor()
   exportCancelFlag = false
   $("exportBtn").textContent = "导出"
   $("playBtn").disabled = !state.chart
@@ -1012,7 +1024,6 @@ function restoreAfterExport() {
 
 async function startExport(cfg) {
   if (!state.chart || state.exporting) return
-  endViewportResize()
   const c = cfg || {}
   exportBg = c.bg || "black"
   exportFmt = c.fmt || "source"
@@ -1021,16 +1032,14 @@ async function startExport(cfg) {
   EXPORT_SR = (exportBg == "transparent" || exportBg == "pngseq") ? 48000 : (c.sr || 48000)
   const isWebm = exportBg == "transparent"
 
-  exportProgressCurrent = 0
   if (exportBg == "black" && (!window.VideoEncoder || !window.AudioEncoder)) {
     finishExportProgress("failed", "当前浏览器不支持 MP4 导出（缺少 WebCodecs）。请选择透明 MOV / PNG 序列，或使用支持 WebCodecs 的浏览器。")
     return
   }
   pause()
-  state.exporting = true
-  syncMeterEditor()
-  exportCancelFlag = false
   exportProgressCurrent = 0
+  state.exporting = true
+  exportCancelFlag = false
   // 预置为谱面首个 BPM：置 null 会让首帧被判成"切换"，导出视频开头多出一次动效
   exportLastShownBpm = Math.round(state.chart.bpmFirst)
   exportBpmFlashStartSec = -1
@@ -1043,15 +1052,17 @@ async function startExport(cfg) {
 
   const chart = state.chart
   const speed = state.speed
-  const outputDur = chart.playEndSeconds / speed
+  const endSec = (typeof chartEndSec === "function") ? chartEndSec() : chart.playEndSeconds
+  const outputDur = Math.max(chart.playEndSeconds, endSec) / speed
   const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
   let failed = false
 
   try {
-    // 先显示进度浮层，让浏览器绘制；字体加载和音频合成也有可见状态。
-    await new Promise(r => setTimeout(r, 0))
+    // 先让浏览器把进度浮层画出来，再等字体就绪
+    await new Promise(function (r) { setTimeout(r, 0) })
     try { await document.fonts.ready } catch (e) { }
     if (exportCancelFlag) return
+
     // 透明mov，ffmpeg.wasm单实例一次性编码
     if (exportBg == "transparent") {
       setupExportCanvas()
@@ -1070,8 +1081,8 @@ async function startExport(cfg) {
     }
 
     // 1) 画布 + worker + 编码器初始化
-    setExportProgress(2, "初始化视频编码器…")
     setupExportCanvas()
+    setExportProgress(2, "初始化视频编码器…")
     setExportProgress(2, "加载视频编码脚本…")
     exportWorkerError = null
     exportWorker = await createExportWorker()

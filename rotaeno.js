@@ -112,7 +112,8 @@ function rotaenoMeterJsonChoices(raw) {
 }
 
 function parseRotaenoMeterEvents(events, chart) {
-  if (!chart || chart.format !== "rotaeno") throw new Error("拍号 JSON 仅支持 Rotaeno 谱面")
+  // 改为全格式通用
+  if (!chart) throw new Error("请先载入谱面")
   if (!Array.isArray(events)) throw new Error("拍号数据必须为数组")
   const byBeat = new Map()
   function snapBeat(beat) {
