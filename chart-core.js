@@ -150,6 +150,11 @@ function isCanonicalStandardGap(deltaBeat, matchedValueInfo) {
   return diff <= 3e-3
 }
 
+// BPM 显示保留最多两位小数
+function fmtBpm(v) {
+  if (!isFinite(v)) return "--"
+  return String(Math.round(v * 100) / 100)
+}
 
 /* ==================== 时值表与匹配 ==================== */
 
@@ -173,7 +178,7 @@ const LEGAL_VALUES = [
   { v: 6, label: "6", cls: "trip-6", valueClass: "trip-value", num: "3", group: "trip" },
   { v: 12, label: "12", cls: "trip-12", valueClass: "trip-value", num: "3", group: "trip" },
   { v: 24, label: "24", cls: "trip-24", valueClass: "trip-value", num: "3", group: "trip" },
-  { v: 48, label: "24", cls: "trip-24", valueClass: "trip-value", num: "3", group: "trip" },
+  { v: 48, label: "48", cls: "trip-48", valueClass: "trip-value", num: "3", group: "trip" },
   // 五连音
   { v: 5, label: "5", cls: "quin-5", valueClass: "quin-value", num: "5", group: "quin" },
   { v: 10, label: "10", cls: "quin-10", valueClass: "quin-value", num: "5", group: "quin" },
@@ -189,6 +194,8 @@ const LEGAL_VALUES = [
   { v: 36, label: "18", cls: "nine-18", valueClass: "nine-value", num: "9", group: "nine" },
 ]
 
+const UNKNOWN_VALUE = { v: null, label: "?", cls: "unk", valueClass: "unk-value", num: null, group: "unk" }
+
 function matchValue(computedValue) {
   // 找最接近的合法值（附点的非整数 v 也参与比较）
   let best = LEGAL_VALUES[0]
@@ -199,7 +206,7 @@ function matchValue(computedValue) {
   }
   // 容差：如果相对误差超过 8%，用?标记（收紧容差，避免附点被误判为普通音符）
   if (minDiff / best.v > 0.08) {
-    return { ...best, unknown: true, v: Math.round(computedValue * 10) / 10, label: `≈${Math.round(computedValue * 10) / 10}` }
+    // baseLabel 保留「最近合法时值」自己的标签（长音落回 v=1 时显示 "1" 用）    return { ...best, unknown: true, baseLabel: best.label, v: Math.round(computedValue * 10) / 10, label: `≈${Math.round(computedValue * 10) / 10}` }
   }
   return { ...best }
 }
@@ -224,29 +231,121 @@ function groupByNearestNeighbor(withBeat) {
   }
 
   // 只有当前一个距离小于后一个距离时，才继承前一个音的颜色
+  // 只继承左邻正在显示的颜色，若左邻也是继承来的，本音退回自身时值色，否则会指向一个画面上不存在的颜色
   const result = []
+  const borrowed = new Array(n).fill(false)
   for (let i = 0; i < n; i++) {
     let nearestGap
+    let borrowFrom = -1 
     const lg = leftGap[i], rg = rightGap[i]
+    const ownGap = (rg != null) ? rg : ((lg != null) ? lg : 1.0)
     if (lg != null && rg != null) {
-      nearestGap = lg < rg ? lg : rg
+      if (lg < rg - 1e-9 && !borrowed[i - 1]) { nearestGap = lg; borrowFrom = i - 1 }
+      else nearestGap = rg
     } else if (lg != null) {
-      nearestGap = lg
+      if (borrowed[i - 1]) nearestGap = 1.0
+      else { nearestGap = lg; borrowFrom = i - 1 }
     } else if (rg != null) {
       nearestGap = rg
     } else {
       nearestGap = 1.0
     }
 
-    const color = matchValue(4 / nearestGap)
+    let shown
+    if (borrowFrom >= 0) {
+      shown = result[borrowFrom].groupColor
+    } else {
+      const color = matchValue(4 / nearestGap)
+      shown = (ownGap > 1 + 1e-9 || !color.unknown)
+        ? color : Object.assign({}, UNKNOWN_VALUE, { label: color.label })
+    }
+    borrowed[i] = shown.label !== matchValue(4 / ownGap).label
     result[i] = {
-      groupColor: color,
+      groupColor: shown,
       actualLeftGap: leftGap[i],
       actualRightGap: rightGap[i],
       index: i
     }
   }
   return result
+}
+
+/* ==================== 节奏对齐 ==================== */
+/*
+  就地改 list[i].beatVal
+
+  逐间隔分类：≤EPS视为已标准、>MAX_SHIFT视为刻意写的，只有差在(EPS, MAX_SHIFT]的间隔参与对齐
+  段内拟合：连续的可对齐间隔为一段，段内按原始值聚类，每类取离原始值最近的合法时值
+  逐段定位：两端钉住，段内按 理想间隔 × f 重排（f = 原始跨度 / 理想和）
+  防误杀：段内任一音符位移>MAX_SHIFT就整段放弃
+*/
+function alignNoteBeats(list) {
+  const n = list ? list.length : 0
+  if (n < 3) return
+  const EPS = 3e-3
+  const MAX_SHIFT = 0.032 // 单个音符允许的位移（拍）= 一个 1/32 网格
+  // 原始拍值快照
+  const orig = list.map(function (x) { return x.beatVal })
+
+  const snap = new Array(n - 1).fill(false)
+  for (let k = 0; k < n - 1; k++) {
+    const gap = orig[k + 1] - orig[k]
+    if (!(gap > 0)) continue
+    const mv = matchValue(4 / gap)
+    if (!mv || mv.unknown) continue
+    const dev = 4 / mv.v - gap
+    if (Math.abs(dev) <= EPS || Math.abs(dev) > MAX_SHIFT) continue
+    snap[k] = true
+  }
+
+  function fitSegment(gs) {
+    const groups = []   // { gap, ideal }
+    for (let i = 0; i < gs.length; i++) {
+      let hit = null
+      for (let j = 0; j < groups.length; j++) {
+        if (Math.abs(groups[j].gap - gs[i]) <= 1e-3) { hit = groups[j]; break }
+      }
+      if (!hit) {
+        const mv = matchValue(4 / gs[i])
+        if (!mv || mv.unknown) return null
+        groups.push({ gap: gs[i], ideal: 4 / mv.v })
+      }
+    }
+    const perCluster = new Array(gs.length)
+    for (let i = 0; i < gs.length; i++) {
+      for (let j = 0; j < groups.length; j++) {
+        if (Math.abs(groups[j].gap - gs[i]) <= 1e-3) { perCluster[i] = groups[j].ideal; break }
+      }
+    }
+    return perCluster
+  }
+
+  let k = 0
+  while (k < n - 1) {
+    if (!snap[k]) { k++; continue }
+    let e = k
+    while (e < n - 1 && snap[e]) e++
+    const gs = []
+    for (let q = k; q < e; q++) gs.push(orig[q + 1] - orig[q])
+    const span = orig[e] - orig[k]
+    const ideals = fitSegment(gs)
+    if (ideals) {
+      let sum = 0
+      for (let q = 0; q < ideals.length; q++) sum += ideals[q]
+      const f = span / sum
+      const cand = []
+      let acc = orig[k]
+      for (let q = 0; q < ideals.length; q++) { acc += ideals[q] * f; cand.push(acc) }
+      let ok = true
+      for (let q = 0; q < ideals.length; q++) {
+        if (Math.abs(cand[q] - orig[k + q + 1]) > MAX_SHIFT) ok = false
+      }
+      if (ok) {
+        for (let q = 0; q < ideals.length; q++) list[k + q + 1].beatVal = cand[q]
+      }
+    }
+    k = e
+  }
 }
 
 /* =========== 格式适配器注册表（主程序预留接口） =========== */
@@ -345,6 +444,11 @@ function parseChart(raw, opts) {
   }
 
   //   就近染色分组
+  // 对齐
+  const alignNotes = !!(opts && opts.alignNotes)
+  const origBeats = alignNotes ? withBeat.map(function (x) { return x.beatVal }) : null
+  if (alignNotes) alignNoteBeats(withBeat)
+
   const colorGroups = groupByNearestNeighbor(withBeat)
 
   const notes = []
@@ -377,14 +481,29 @@ function parseChart(raw, opts) {
       beatLabel = actualValueInfo.label
     } else {
       const delta = withBeat[i + 1].beatVal - cur.beatVal
-      beatLabel = isCanonicalStandardGap(delta, actualValueInfo)
+      beatLabel = (isCanonicalStandardGap(delta, actualValueInfo) || (alignNotes && !actualValueInfo.unknown))
         ? actualValueInfo.label
         : formatBeatGapFraction(delta)
+      if (delta > 1 + 1e-9 && actualValueInfo.v !== null && actualValueInfo.v <= 1) beatLabel = "1"
+    }
+
+    // 时值被对齐改过时附上原本的时值标签
+    let origLabel = null
+    if (alignNotes && origBeats && i < withBeat.length - 1) {
+      const od = origBeats[i + 1] - origBeats[i]
+      if (od > 0) {
+        const omv = matchValue(4 / od)
+        const origText = (od > 1 + 1e-9 && omv.v !== null && omv.v <= 1)
+          ? "1"
+          : ((omv && !omv.unknown && isCanonicalStandardGap(od, omv)) ? omv.label : formatBeatGapFraction(od))
+        if (origText !== beatLabel) origLabel = origText
+      }
     }
 
     notes.push({
       beatVal: cur.beatVal,
       second,
+      origLabel,       // 拖动过的附上原时值
       colorInfo,
       actualValueInfo,
       beatLabel,

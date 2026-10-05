@@ -32,15 +32,17 @@ let exportBpmFlashStartSec = -1 // 最近一次 BPM 切换对应的导出视频�
 const EXPORT_COLORS = {
   "std-4": "#1038ff", "std-8": "#ff182f", "std-16": "#4da6ff", "std-32": "#4de0ff",
   "dot-4": "#1038ff", "dot-8": "#ff182f", "dot-16": "#4da6ff",
-  "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e",
+  "trip-6": "#22d27e", "trip-12": "#ffa94d", "trip-24": "#9aff6e", "trip-48": "#ccffb3",
   "quin-5": "#8b4dd2", "quin-10": "#c266ff", "quin-20": "#ff6dd1",
   "sept-7": "#7c6bff", "sept-14": "#b59cff",
-  "nine-9": "#1fbfb0", "nine-18": "#34d399"
+  "nine-9": "#1fbfb0", "nine-18": "#34d399",
+  "unk": "#9ca3af"
 }
 // 时值色
 const EXPORT_VALUE_COLORS = {
   "std-value": "#93c5fd", "dot-value": "#fca5a5", "trip-value": "#86efac",
-  "quin-value": "#e9d5ff", "sept-value": "#c7d2fe", "nine-value": "#6ee7b7"
+  "quin-value": "#e9d5ff", "sept-value": "#c7d2fe", "nine-value": "#6ee7b7",
+  "unk-value": "#d1d5db"
 }
 
 let exportCanvas = null, exportCtx = null, exportW = 0, exportH = 0
@@ -937,19 +939,21 @@ function drawExportFrame(sec) {
     if (displayNum) {
       ctx.fillStyle = "#fff"
       ctx.font = (dotted ? "900 16px " : "800 12px ") + EXPORT_FONT()
-      ctx.fillText(displayNum, x, y + 1)
+      ctx.fillText(displayNum, x, y + 1.5)
     }
-    if (4 / nt.actualValueInfo.v <= 4) {
+    {
       const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
       ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
       ctx.font = "700 " + (state.valueFontSize || 11) + "px " + EXPORT_FONT()
-      ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 107)
+      ctx.textBaseline = "top"
+      ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 113)
+      ctx.textBaseline = "middle"
     }
   }
 
   // BPM 面板和切换动画
   const curBpm = bpmAt(beat)
-  const roundedBpm = Math.round(curBpm)
+  const roundedBpm = Math.round(curBpm * 100) / 100
   if (roundedBpm !== exportLastShownBpm) {
     exportLastShownBpm = roundedBpm
     if (state.bpmAnim) exportBpmFlashStartSec = sec
@@ -1041,7 +1045,7 @@ async function startExport(cfg) {
   state.exporting = true
   exportCancelFlag = false
   // 预置为谱面首个 BPM：置 null 会让首帧被判成"切换"，导出视频开头多出一次动效
-  exportLastShownBpm = Math.round(state.chart.bpmFirst)
+  exportLastShownBpm = Math.round(state.chart.bpmFirst * 100) / 100
   exportBpmFlashStartSec = -1
   $("playBtn").disabled = true
   $("pauseBtn").disabled = true

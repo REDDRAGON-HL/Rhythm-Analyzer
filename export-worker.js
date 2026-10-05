@@ -108,7 +108,8 @@ async function handleMessage(msg) {
           : undefined,
     // in-memory，先攒再写moov
         fastStart: "in-memory",
-        firstTimestampBehavior: "offset"
+        // 首 chunk 时间戳非 0 时把所有轨一起平移（用 offset 只会挪单条轨 → 音画不同步）
+        firstTimestampBehavior: "cross-track-offset"
       })
 
     videoEncoder = new VideoEncoder({
