@@ -836,6 +836,7 @@ function drawExportFrame(sec) {
   const judgeX = 194   // 判定环圆心 = playHead left166 + 28
   const W = exportW, H = exportH
   const xOf = b => judgeX + (b - beat) * ppb
+  const ns = state.noteScale || 1   // note 缩放
 
   ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, -EXPORT_CROP_L * EXPORT_SCALE, -EXPORT_CROP_T * EXPORT_SCALE)
   if (exportBg !== "black") {
@@ -915,21 +916,26 @@ function drawExportFrame(sec) {
     const y = midY
     const dotted = nt.actualValueInfo.dotted
     const isChordHi = state.showChords && nt.chordCount >= 2
-    ctx.lineWidth = isChordHi ? 2.5 : 2
+    const lw = (isChordHi ? 2.5 : 2) * ns
+    const rOut = 15 * ns
+    const rStroke = rOut - lw / 2
+    ctx.lineWidth = lw
     ctx.strokeStyle = isChordHi ? "#fbbf24" : "rgba(255,255,255,0.9)"
-    if (isChordHi) { ctx.shadowColor = "rgba(251,191,36,0.65)"; ctx.shadowBlur = 16 }
+    if (isChordHi) { ctx.shadowColor = "rgba(251,191,36,0.65)"; ctx.shadowBlur = 16 * ns }
     ctx.fillStyle = EXPORT_COLORS[nt.colorInfo.cls] || "#4da6ff"
     if (dotted) {
       ctx.save()
       ctx.translate(x, y)
       ctx.rotate(Math.PI / 4)
-      ctx.fillRect(-15, -15, 30, 30)
-      ctx.strokeRect(-15, -15, 30, 30)
+      ctx.fillRect(-rOut, -rOut, rOut * 2, rOut * 2)
+      ctx.strokeRect(-rStroke, -rStroke, rStroke * 2, rStroke * 2)
       ctx.restore()
     } else {
       ctx.beginPath()
-      ctx.arc(x, y, 15, 0, Math.PI * 2)
+      ctx.arc(x, y, rOut, 0, Math.PI * 2)
       ctx.fill()
+      ctx.beginPath()
+      ctx.arc(x, y, rStroke, 0, Math.PI * 2)
       ctx.stroke()
     }
     if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
@@ -938,8 +944,8 @@ function drawExportFrame(sec) {
     else if (nt.colorInfo.num && !nt.colorInfo.dotted) displayNum = nt.colorInfo.num
     if (displayNum) {
       ctx.fillStyle = "#fff"
-      ctx.font = (dotted ? "900 16px " : "800 12px ") + EXPORT_FONT()
-      ctx.fillText(displayNum, x, y + 1.5)
+      ctx.font = (dotted ? "900 " + (16 * ns) + "px " : "800 " + (12 * ns) + "px ") + EXPORT_FONT()
+      ctx.fillText(displayNum, x, y + (dotted ? 1.0 : 1.3) * ns)
     }
     {
       const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
@@ -1006,9 +1012,9 @@ function drawExportFrame(sec) {
 
   // 判定环
   ctx.strokeStyle = "#fff"
-  ctx.lineWidth = 2.5
+  ctx.lineWidth = 2.5 * ns
   ctx.beginPath()
-  ctx.arc(judgeX, midY, 19, 0, Math.PI * 2)
+  ctx.arc(judgeX, midY, 19 * ns - 1.25 * ns, 0, Math.PI * 2)
   ctx.stroke()
 }
 

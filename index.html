@@ -116,8 +116,8 @@
 
   body.show-chords .note.chord .shape {
     border-color: #fbbf24;
-    border-width: 2.5px;
-    box-shadow: 0 0 8px rgba(251, 191, 36, 0.65);
+    border-width: calc(2.5px * var(--note-scale, 1));
+    box-shadow: 0 0 calc(8px * var(--note-scale, 1)) rgba(251, 191, 36, 0.65);
   }
 
   .sub-row {
@@ -125,6 +125,13 @@
     padding-top: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     flex-wrap: nowrap;
+  }
+
+  /* 轴流动速度 / 字号 / note 缩放 行 */
+  .axis-row {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .audio-ctl {
@@ -166,6 +173,7 @@
   /* 播放行字号 / 导出宽度输入框：与信息栏输入框同款，配色贴合蓝色控件 */
   #barFontInput,
   #valueFontInput,
+  #noteScaleInput,
   #optWidth {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -182,8 +190,9 @@
   }
 
   #barFontInput,
-  #valueFontInput {
-    width: 48px;
+  #valueFontInput,
+  #noteScaleInput {
+    width: 52px;
   }
 
   #optWidth {
@@ -194,6 +203,8 @@
   #barFontInput::-webkit-inner-spin-button,
   #valueFontInput::-webkit-outer-spin-button,
   #valueFontInput::-webkit-inner-spin-button,
+  #noteScaleInput::-webkit-outer-spin-button,
+  #noteScaleInput::-webkit-inner-spin-button,
   #optWidth::-webkit-outer-spin-button,
   #optWidth::-webkit-inner-spin-button {
     -webkit-appearance: none;
@@ -202,6 +213,7 @@
 
   #barFontInput:hover,
   #valueFontInput:hover,
+  #noteScaleInput:hover,
   #optWidth:hover {
     background: rgba(255, 255, 255, 0.09);
     border-color: rgba(255, 255, 255, 0.32);
@@ -209,6 +221,7 @@
 
   #barFontInput:focus,
   #valueFontInput:focus,
+  #noteScaleInput:focus,
   #optWidth:focus {
     outline: none;
     border-color: #4da6ff;
@@ -698,10 +711,10 @@
     top: 70px;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 38px;
-    height: 38px;
+    width: calc(38px * var(--note-scale, 1));
+    height: calc(38px * var(--note-scale, 1));
     border-radius: 50%;
-    border: 2.5px solid #fff;
+    border: calc(2.5px * var(--note-scale, 1)) solid #fff;
     background: transparent;
   }
 
@@ -802,8 +815,8 @@
     position: absolute;
     top: 70px;
     transform: translate(-50%, -50%);
-    width: 30px;
-    height: 30px;
+    width: calc(30px * var(--note-scale, 1));
+    height: calc(30px * var(--note-scale, 1));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -821,7 +834,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid rgba(255, 255, 255, 0.9);
+    border: calc(2px * var(--note-scale, 1)) solid rgba(255, 255, 255, 0.9);
     position: relative;
   }
 
@@ -839,7 +852,7 @@
   }
 
   .note .num {
-    font-size: 12px;
+    font-size: calc(12px * var(--note-scale, 1));
     font-weight: 800;
     color: #fff;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -905,7 +918,7 @@
   }
 
   .note.diamond .num {
-    font-size: 16px;
+    font-size: calc(16px * var(--note-scale, 1));
     font-weight: 900;
     line-height: 1;
     transform: rotate(-45deg);
@@ -1070,6 +1083,7 @@
     height: 24px;
     flex-shrink: 0;
     transition: none;
+    --note-scale: 1;
   }
 
   .shortcuts {
@@ -1191,22 +1205,28 @@
         <option value="2">2.0x</option>
         <option value="4">4.0x</option>
       </select>
-      <label class="flow-ctl" title="调整时间轴滚动速度和音符间距，音乐播放速度保持不变">
-        轴流动速度
-        <input id="flowSpeed" type="range" min="0.25" max="4" step="0.05" value="1">
-        <output id="flowSpeedValue" for="flowSpeed">1.00×</output>
-      </label>
       <button id="dragBtn" class="active">显示 drag</button>
       <button id="holdTailBtn" class="active">显示长条尾部</button>
       <button id="chordBtn">显示多押</button>
       <button id="bpmAnimBtn" class="active" title="bpm切换时动效开关">BPM动效</button>
       <button id="alignBtn" title="实验性：把连音近似间隔吸附到标准时值">对齐节奏</button>
       <button id="exportBtn" disabled title="逐帧渲染导出视频">导出</button>
+    </div>
+    <div class="toolbar axis-row">
+      <label class="flow-ctl" title="调整时间轴滚动速度和音符间距，音乐播放速度保持不变">
+        轴流动速度
+        <input id="flowSpeed" type="range" min="0.25" max="4" step="0.05" value="1">
+        <output id="flowSpeedValue" for="flowSpeed">1.00×</output>
+      </label>
       <span class="audio-ctl" title="小节编号的字号">小节字号
         <input type="number" id="barFontInput" min="6" max="40" step="1" value="13">
       </span>
       <span class="audio-ctl" title="时值标签的字号">时值字号
         <input type="number" id="valueFontInput" min="6" max="40" step="1" value="11">
+      </span>
+      <span class="audio-ctl" title="音符渲染大小">note 缩放
+        <input type="number" id="noteScaleInput" min="30" max="300" step="5" value="100">
+        <span>%</span>
       </span>
     </div>
     <div class="toolbar sub-row">
@@ -1872,20 +1892,25 @@
     const timeline = $("timeline")
     timeline.style.minWidth = Math.max(6000, (timeline._maxBeat || 0) * state.pixelsPerBeat + 800) + "px"
   }
-  $("flowSpeed").addEventListener("input", function () {
-    if (state.exporting) return
-    const previous = state.pixelsPerBeat
-    state.pixelsPerBeat = 120 * Number(this.value)
-    $("flowSpeedValue").value = Number(this.value).toFixed(2) + "×"
+    function applyAxisLength() {
+      return 120 * (state.noteScale || 1) * Number($("flowSpeed").value)
+    }
+    function rescaleAxis(previousPpb) {
+      state.pixelsPerBeat = applyAxisLength()
     if (!state.chart) return
     const timeline = $("timeline")
-    const ratio = state.pixelsPerBeat / previous
+    const ratio = state.pixelsPerBeat / previousPpb
     for (const child of timeline.children) {
       const x = parseFloat(child.style.left)
       if (isFinite(x)) child.style.left = x * ratio + "px"
     }
     updateTimelineWidth()
     updatePlayhead(state.curSec, true)
+    }
+    $("flowSpeed").addEventListener("input", function () {
+      if (state.exporting) return
+      $("flowSpeedValue").value = Number(this.value).toFixed(2) + "×"
+      rescaleAxis(state.pixelsPerBeat)
   })
 
   function renderTimeline() {
@@ -2336,18 +2361,7 @@
     input.value = val
     if (val == state.beatOffset) return
     state.beatOffset = val
-    if (state._parseRaw !== undefined) {
-      try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
-        if (!chart.notes.length) return
-        pause()
-        state.chart = chart
-        renderTimeline()
-        reset()
-      } catch (err) {
-        console.error("偏移重解析失败:", err)
-      }
-    }
+    if (state.chart) renderTimeline()
   }
   $("beatOffsetInput").addEventListener("blur", applyBeatOffset)
   $("beatOffsetInput").addEventListener("keydown", function (e) {
@@ -2414,15 +2428,24 @@
   $("valueFontInput").addEventListener("change", applyValueFont)
   applyFontSizes()
 
+    // note 缩放
+    state.noteScale = 1
+    $("noteScaleInput").addEventListener("change", function () {
+      if (state.exporting) return
+      let v = parseInt(this.value, 10)
+      if (!isFinite(v) || v < 30) v = 100
+      if (v > 300) v = 300
+      this.value = v
+      const previous = state.pixelsPerBeat
+      state.noteScale = v / 100
+      document.documentElement.style.setProperty("--note-scale", state.noteScale)
+      rescaleAxis(previous)
+    })
+
   // 导出设置模态框：点导出弹出；选项联动；开始后走原导出进度流程
   function syncExportModal() {
     const bg = $("optBg").value
     const fmt = $("optFmt").value
-    // 输出宽度
-    if (!$("optWidth").value || parseInt($("optWidth").value, 10) === 0) {
-      const box = document.querySelector(".chart-area")
-      if (box) $("optWidth").value = Math.floor((box.clientWidth - 24) / 2) * 2
-    }
     $("optPanel").disabled = bg == "black"
     if (bg == "black") $("optPanel").checked = false
     // Opus 只支持 48kHz
@@ -2459,8 +2482,15 @@
     else $("fmtHint").style.color = ""
   }
 
+    // 输出宽度
+    function refreshExportWidth() {
+      const box = document.querySelector(".chart-area")
+      if (box) $("optWidth").value = Math.floor((box.clientWidth - 24) / 2) * 2
+    }
+
   $("exportBtn").addEventListener("click", function () {
     if (state.exporting) { cancelExport(); return }
+    refreshExportWidth()
     syncExportModal()
     $("exportModal").classList.add("open")
   })
