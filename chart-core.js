@@ -206,7 +206,8 @@ function matchValue(computedValue) {
   }
   // 容差：如果相对误差超过 8%，用?标记（收紧容差，避免附点被误判为普通音符）
   if (minDiff / best.v > 0.08) {
-    // baseLabel 保留「最近合法时值」自己的标签（长音落回 v=1 时显示 "1" 用）    return { ...best, unknown: true, baseLabel: best.label, v: Math.round(computedValue * 10) / 10, label: `≈${Math.round(computedValue * 10) / 10}` }
+    // baseLabel 保留「最近合法时值」自己的标签（长音落回 v=1 时显示 "1" 用）
+    return { ...best, unknown: true, baseLabel: best.label, v: Math.round(computedValue * 10) / 10, label: `≈${Math.round(computedValue * 10) / 10}` }
   }
   return { ...best }
 }
