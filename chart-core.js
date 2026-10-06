@@ -276,6 +276,7 @@ function groupByNearestNeighbor(withBeat) {
   就地改 list[i].beatVal
 
   逐间隔分类：≤EPS视为已标准、>MAX_SHIFT视为刻意写的，只有差在(EPS, MAX_SHIFT]的间隔参与对齐
+  节拍细分网格拟合：整段找一条一拍分成n等份的网格，按步长从粗到细依次认领
   段内拟合：连续的可对齐间隔为一段，段内按原始值聚类，每类取离原始值最近的合法时值
   逐段定位：两端钉住，段内按 理想间隔 × f 重排（f = 原始跨度 / 理想和）
   防误杀：段内任一音符位移>MAX_SHIFT就整段放弃
@@ -297,6 +298,50 @@ function alignNoteBeats(list) {
     const dev = 4 / mv.v - gap
     if (Math.abs(dev) <= EPS || Math.abs(dev) > MAX_SHIFT) continue
     snap[k] = true
+  }
+
+  const MIN_WINDOW = 2
+  const WINDOW_TOL = 0.75 / 32
+  const LATTICE_STEPS = []
+  for (let li = 0; li < LEGAL_VALUES.length; li++) {
+    const s = 4 / LEGAL_VALUES[li].v
+    if (s > 0 && LATTICE_STEPS.indexOf(s) < 0) LATTICE_STEPS.push(s)
+  }
+  LATTICE_STEPS.sort(function (x, y) { return y - x })
+  function latticeFits(pos, base, s) {
+    return Math.abs(pos - (base + Math.round((pos - base) / s) * s)) <= WINDOW_TOL
+  }
+  for (let si = 0; si < LATTICE_STEPS.length; si++) {
+    const s = LATTICE_STEPS[si]
+    for (let a = 0; a < n - 1; a++) {
+      if (!snap[a]) continue
+      let bestB = -1
+      let b = a
+      while (b < n - 1 && snap[b] && latticeFits(orig[b + 1], orig[a], s)) b++
+      if (b - a > bestB - a && b > a) {
+        let mn = Infinity
+        for (let k = a; k < b; k++) mn = Math.min(mn, orig[k + 1] - orig[k])
+        if (Math.abs(mn - s) <= WINDOW_TOL) bestB = b
+      }
+      if (bestB - a >= MIN_WINDOW) {
+        const jmax = Math.round((orig[bestB] - orig[a]) / s)
+        let ok = jmax >= 1
+        const cand = []
+        if (ok) {
+          const step = (orig[bestB] - orig[a]) / jmax
+          for (let k = a + 1; k <= bestB; k++) {
+            const p = orig[a] + Math.round((orig[k] - orig[a]) / s) * step
+            if (Math.abs(p - orig[k]) > MAX_SHIFT) { ok = false; break }
+            cand.push(p)
+          }
+        }
+        if (ok) {
+          for (let i = 0; i < cand.length; i++) list[a + 1 + i].beatVal = cand[i]
+          for (let k = a; k < bestB; k++) snap[k] = false
+          a = bestB
+        }
+      }
+    }
   }
 
   function fitSegment(gs) {
@@ -328,14 +373,14 @@ function alignNoteBeats(list) {
     while (e < n - 1 && snap[e]) e++
     const gs = []
     for (let q = k; q < e; q++) gs.push(orig[q + 1] - orig[q])
-    const span = orig[e] - orig[k]
+    const span = list[e].beatVal - list[k].beatVal
     const ideals = fitSegment(gs)
     if (ideals) {
       let sum = 0
       for (let q = 0; q < ideals.length; q++) sum += ideals[q]
       const f = span / sum
       const cand = []
-      let acc = orig[k]
+      let acc = list[k].beatVal
       for (let q = 0; q < ideals.length; q++) { acc += ideals[q] * f; cand.push(acc) }
       let ok = true
       for (let q = 0; q < ideals.length; q++) {
