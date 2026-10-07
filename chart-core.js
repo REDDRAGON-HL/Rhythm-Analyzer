@@ -18,7 +18,7 @@
    parseChart(raw, { kind }) 返回谱面对象：
      {
        meta, bpmSegments,
-       notes: [{ beatVal, second, colorInfo(组色), actualValueInfo(实际时值), beatLabel, column, chordCount }],
+       notes: [{ beatVal, second, colorInfo(组色), actualValueInfo(实际时值), beatLabel, column, chordCount, uid, uids, userSet }],
        totalBeats, chartEndBeat, playEndBeat, totalSeconds, playEndSeconds,
        bgmOffsetSec, musicDelayedEntry, bpmFirst, rawTapCount
      }
@@ -237,7 +237,7 @@ function groupByNearestNeighbor(withBeat) {
   const borrowed = new Array(n).fill(false)
   for (let i = 0; i < n; i++) {
     let nearestGap
-    let borrowFrom = -1 
+    let borrowFrom = -1
     const lg = leftGap[i], rg = rightGap[i]
     const ownGap = (rg != null) ? rg : ((lg != null) ? lg : 1.0)
     if (lg != null && rg != null) {
@@ -291,6 +291,7 @@ function alignNoteBeats(list) {
 
   const snap = new Array(n - 1).fill(false)
   for (let k = 0; k < n - 1; k++) {
+    if (list[k + 1].userSet) continue
     const gap = orig[k + 1] - orig[k]
     if (!(gap > 0)) continue
     const mv = matchValue(4 / gap)
@@ -394,6 +395,53 @@ function alignNoteBeats(list) {
   }
 }
 
+/* ================ 手动编辑叠加层 ================ */
+
+/*
+  opts.noteEdits：
+    { kind:"add", id, beatVal }  在 beatVal 处新增一个普通 tap
+    { kind:"remove", uid }       删除 uid 那一个 tap
+    { kind:"move", uid, to }     把 uid 那一个 tap 挪到 to
+  uid：源音符 "s:<原始拍位键>:<该拍内序号>"、新增音 "a:<记录 id>"；
+*/
+function noteEditKey(beatVal) {
+  return String(Math.round(beatVal * 1e6))
+}
+
+function applyNoteEdits(taps, edits) {
+  const list = edits || []
+  const removed = new Set()
+  const moved = new Map()
+  for (const e of list) {
+    if (!e) continue
+    if (e.kind === "remove") removed.add(e.uid)
+    else if (e.kind === "move") moved.set(e.uid, e.to)
+  }
+  const seen = new Map()
+  const out = []
+  for (const t of taps) {
+    const key = noteEditKey(t.beatVal)
+    const n = seen.get(key) || 0
+    seen.set(key, n + 1)
+    const uid = "s:" + key + ":" + n
+    if (removed.has(uid)) continue
+    const isMoved = moved.has(uid)
+    out.push({
+      beatVal: isMoved ? moved.get(uid) : t.beatVal,
+      column: t.column,
+      noteType: t.noteType,
+      uid: uid,
+      userSet: isMoved
+    })
+  }
+  for (const e of list) {
+    if (e && e.kind === "add") {
+      out.push({ beatVal: e.beatVal, column: 0, noteType: 0, uid: "a:" + e.id, userSet: true })
+    }
+  }
+  return out
+}
+
 /* =========== 格式适配器注册表（主程序预留接口） =========== */
 
 const chartAdapters = []
@@ -406,12 +454,15 @@ function registerChartAdapter(name, detect, extract) {
 /* ==================== 解析主流程 ==================== */
 
 // opts.kind: 载入文件的扩展名（小写）；缺省时按内容匹配
+// opts.noteEdits: 用户手动编辑叠加层
 function parseChart(raw, opts) {
   // 选格式适配器，抽取成统一中间结构
   const kind = opts && opts.kind
   const adapter = chartAdapters.find(a => a.detect(raw, kind))
   if (!adapter) throw new Error("无法识别的谱面格式（没有适配器匹配该数据）")
   const { time, taps, bgmOffsetSec, musicDelayedEntry } = adapter.extract(raw)
+
+  const editedTaps = applyNoteEdits(taps, opts && opts.noteEdits)
 
   const segs = buildBpmSegments(time)
 
@@ -422,12 +473,12 @@ function parseChart(raw, opts) {
   // drag 显示模式
   const dragMode = (opts && opts.dragMode) || ((opts && opts.showDrag == false) ? "off" : "all")
   const showHoldTail = !(opts && opts.showHoldTail == false)
-  let filteredTaps = taps
+  let filteredTaps = editedTaps
   if (dragMode == "off") filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_DRAG)
   if (!showHoldTail) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_HOLD_TAIL)
 
-  // 转换拍数并排序，保留 noteType 供 notes 字段透传（用于将来渲染/统计）
-  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0 }))
+  // 转换拍数并排序，保留 noteType / uid / userSet 供 notes 字段透传
+  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0, uid: t.uid, userSet: !!t.userSet }))
     .sort((a, b) => a.beatVal - b.beatVal)
   let rawTapCount = sorted.length
 
@@ -438,6 +489,8 @@ function parseChart(raw, opts) {
     const prev = withBeat[withBeat.length - 1]
     if (prev && Math.abs(t.beatVal - prev.beatVal) <= DEDUP_EPS) {
       prev.chordCount++
+      prev.uids.push(t.uid)
+      prev.userSet = prev.userSet || t.userSet
       if (t.noteType == TYPE_DRAG) prev.hasDrag = true
       if (t.noteType == TYPE_HOLD_TAIL) prev.hasHoldTail = true
     } else {
@@ -446,6 +499,9 @@ function parseChart(raw, opts) {
         column: t.column,
         chordCount: 1,
         noteType: t.noteType,
+        uid: t.uid,
+        uids: [t.uid],
+        userSet: !!t.userSet,
         hasDrag: (t.noteType == TYPE_DRAG),
         hasHoldTail: (t.noteType == TYPE_HOLD_TAIL)
       })
@@ -555,6 +611,9 @@ function parseChart(raw, opts) {
       beatLabel,
       column: cur.column,
       chordCount: cur.chordCount,  // 多押数量
+      uid: cur.uid,                // 该点身份
+      uids: cur.uids,              // 该点上全部音的身份
+      userSet: !!cur.userSet,
       noteType: cur.noteType,      // 0 普通 / 2 drag
       hasDrag: cur.hasDrag,         // 同拍内是否含 drag
       hasHoldTail: cur.hasHoldTail // 同拍内是否含 hold 尾

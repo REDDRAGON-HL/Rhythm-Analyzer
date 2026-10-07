@@ -992,23 +992,58 @@ function drawExportFrame(sec) {
   ctx.strokeStyle = "rgba(255,255,255,0.15)"
   ctx.lineWidth = 1
   ctx.strokeRect(24.5, y0 + 0.5, 129, 139)
+  // BPM 面板文字
+  const BP_LABEL_LH = 18, BP_LABEL_MB = 4, BP_VALUE_LH = 36, BP_METER_LH = 18, BP_METER_MT = 4
+  const BP_METER_NUDGE = 1
+  const showMeter = !!state.showMeter
+  const bpContentH = BP_LABEL_LH + BP_LABEL_MB + BP_VALUE_LH + (showMeter ? BP_METER_MT + BP_METER_LH : 0)
+  const bpTop = y0 + (140 - bpContentH) / 2 + (showMeter ? BP_METER_NUDGE : 0)
+  const bpLabelTop = bpTop
+  const bpValueTop = bpLabelTop + BP_LABEL_LH + BP_LABEL_MB
+  const bpMeterTop = bpValueTop + BP_VALUE_LH + BP_METER_MT
+  const baselineIn = (lineTop, lineHeight) => {
+    const m = ctx.measureText("0")
+    return lineTop + (lineHeight - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 + m.fontBoundingBoxAscent
+  }
+  const fillSpaced = (text, centerX, baseY, spacing) => {
+    ctx.textAlign = "left"
+    const widths = []
+    let total = 0
+    for (const ch of text) { const w = ctx.measureText(ch).width; widths.push(w); total += w }
+    total += spacing * text.length
+    let x = centerX - total / 2
+    for (let i = 0; i < widths.length; i++) {
+      ctx.fillText(text[i], x, baseY)
+      x += widths[i] + spacing
+    }
+    ctx.textAlign = "center"
+  }
+  ctx.textBaseline = "alphabetic"
   const glowBlurPx = rawP < 0 ? 0 : (21 * bpmGlow)
   ctx.fillStyle = "#fff"
-  if (glowBlurPx > 0.05) {
-    ctx.shadowColor = "rgba(255,255,255,1)"
-    ctx.shadowBlur = glowBlurPx
-  }
   ctx.font = "600 14px " + EXPORT_FONT()
-  ctx.fillText("BPM", 89, y0 + 48)
-  if (glowBlurPx > 0.05) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
-  const bigFontSize = 36 * bpmScale
-  ctx.font = "800 " + bigFontSize + "px " + EXPORT_FONT()
+  const bpLabelBase = baselineIn(bpLabelTop, BP_LABEL_LH)
   if (glowBlurPx > 0.05) {
     ctx.shadowColor = "rgba(255,255,255,1)"
     ctx.shadowBlur = glowBlurPx
   }
-  ctx.fillText(String(roundedBpm), 89, y0 + 88)
+  fillSpaced("BPM", 89, bpLabelBase, 3)
   if (glowBlurPx > 0.05) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
+  ctx.font = "800 36px " + EXPORT_FONT()
+  const bpValueBase = baselineIn(bpValueTop, BP_VALUE_LH)
+  ctx.font = "800 " + (36 * bpmScale) + "px " + EXPORT_FONT()
+  if (glowBlurPx > 0.05) {
+    ctx.shadowColor = "rgba(255,255,255,1)"
+    ctx.shadowBlur = glowBlurPx
+  }
+  fillSpaced(String(roundedBpm), 89, bpValueBase, 1 * bpmScale)
+  if (glowBlurPx > 0.05) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
+  if (showMeter && typeof meterAtBeat === "function") {
+    const meter = meterAtBeat(beat)
+    ctx.fillStyle = "#fff"
+    ctx.font = "600 14px " + EXPORT_FONT()
+    fillSpaced(meter.num + "/" + meter.den, 89, baselineIn(bpMeterTop, BP_METER_LH), 1)
+  }
 
   // 判定环
   ctx.strokeStyle = "#fff"

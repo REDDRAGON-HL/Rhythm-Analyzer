@@ -352,8 +352,9 @@
     font-size: 13px;
   }
 
-  .meter-controls input[type="number"] {
-    width: 95px;
+  .meter-controls input[type="number"],
+  .meter-controls input[type="text"],
+  .note-editor .note-beat-input {
     padding: 6px 8px;
     color: #e2e8f0;
     background: rgba(255, 255, 255, 0.06);
@@ -363,11 +364,22 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .meter-controls input[type="number"],
+  .meter-controls input[type="text"] {
+    width: 95px;
+  }
+
+  .note-editor .note-beat-input {
+    width: 112px;
+  }
+
   .meter-controls input[type="number"]:invalid {
     border-color: #f87171;
   }
 
   .meter-controls input[type="number"]:focus,
+  .meter-controls input[type="text"]:focus,
+  .note-editor .note-beat-input:focus,
   .meter-json-import textarea:focus {
     outline: none;
     border-color: #4da6ff;
@@ -427,6 +439,45 @@
   .timeline .note.selected .shape {
     outline: 2px solid #ffcc80;
     outline-offset: 4px;
+  }
+
+  .note-editor .note-list {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .note-editor .note-row-index {
+    min-width: 52px;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .note-editor .note-row.selected {
+    color: #ffcc80;
+  }
+
+  .note-editor .note-row.selected .note-beat-input {
+    border-color: #ffcc80;
+  }
+
+  .note-editor .note-row-tag {
+    color: #4ade80;
+    font-size: 12px;
+  }
+
+  .note-editor .note-row {
+    border-left: 2px solid transparent;
+    padding-left: 6px;
+  }
+
+  .note-editor .note-row.chord-row {
+    border-left-color: rgba(251, 191, 36, 0.45);
+  }
+
+  .note-editor .note-row-chord {
+    color: #fbbf24;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 
   .modal .btn-row {
@@ -639,6 +690,31 @@
     box-shadow: 0 0 10px rgba(16, 56, 255, 0.6);
   }
 
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1038ff;
+    border-radius: 5px;
+    box-shadow: 0 0 6px rgba(16, 56, 255, 0.35);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a5fff;
+    box-shadow: 0 0 10px rgba(16, 56, 255, 0.6);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   .timeline {
     position: relative;
     margin: 0 100px 0 260px;
@@ -676,6 +752,7 @@
 
   .bpm-panel .bpm-label {
     font-size: 14px;
+    line-height: 18px;
     letter-spacing: 3px;
     color: #fff;
     font-weight: 600;
@@ -689,6 +766,25 @@
     line-height: 1;
     letter-spacing: 1px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .bpm-panel .bpm-meter {
+    display: none;
+    font-size: 14px;
+    line-height: 18px;
+    letter-spacing: 1px;
+    color: #fff;
+    font-weight: 600;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  body.show-meter .bpm-panel .bpm-meter {
+    display: block;
+  }
+
+  body.show-meter .bpm-panel {
+    padding-top: 2px;
   }
 
   .play-head {
@@ -1181,6 +1277,7 @@
     <div class="bpm-panel" id="bpmPanel">
       <div class="bpm-label">BPM</div>
       <div class="bpm-value" id="bpmLarge">--</div>
+      <div class="bpm-meter" id="bpmMeter">4/4</div>
     </div>
     <div class="play-head" id="playHead"></div>
     <div class="canvas-wrap" id="canvasWrap">
@@ -1209,6 +1306,7 @@
       <button id="holdTailBtn" class="active">显示长条尾部</button>
       <button id="chordBtn">显示多押</button>
       <button id="bpmAnimBtn" class="active" title="bpm切换时动效开关">BPM动效</button>
+      <button id="meterBtn" title="在 BPM 面板的数字下方显示当前拍号">显示拍号</button>
       <button id="alignBtn" title="实验性：把连音近似间隔吸附到标准时值">对齐节奏</button>
       <button id="exportBtn" disabled title="逐帧渲染导出视频">导出</button>
     </div>
@@ -1249,6 +1347,25 @@
       </label>
     </div>
   </div>
+  <details class="meter-editor note-editor" id="noteEditor">
+    <summary>编辑 note · 共 <span id="noteEditCount">0</span> 个</summary>
+    <p>输入目标拍位置添加 note，支持 <code>30 1/4</code>、<code>30.25</code>、<code>1/3</code> 三种写法；
+      点击时间轴上的音符会定位到列表里对应的行；
+      <b>新增和改过位置的 note 不受「对齐节奏」影响</b>
+    </p>
+    <div class="meter-controls">
+      <label>目标拍 <input id="noteAddInput" type="text" placeholder="30 1/4" spellcheck="false"></label>
+      <button id="noteAddBtn">添加 note</button>
+      <button id="noteUseSelectedBtn">使用选中位置</button>
+      <button id="noteUsePlayheadBtn">使用播放头位置</button>
+    </div>
+    <details class="meter-json-import" id="noteListEditor">
+      <summary>note 列表（<span id="noteListCount">0</span>）</summary>
+      <div id="noteList" class="meter-list note-list"></div>
+    </details>
+    <div id="noteStatus" class="meter-status" role="status" aria-live="polite"></div>
+  </details>
+
   <details class="meter-editor" id="meterEditor">
     <summary>节点拍号 · 当前 <span id="currentMeter">4/4</span></summary>
     <p>点击时间轴上的音符选择节点，或输入四分音符拍数。修改从该节点开启新小节，持续到下一次修改。</p>
@@ -1453,6 +1570,7 @@
     lastShownBpm: null, // 上次显示的 BPM
     exporting: false,   // 是否正在导出视频
     showChords: false,  // 显示多押开关
+    showMeter: false,
     // drag 显示模式
     dragMode: (function () {
       try {
@@ -1468,8 +1586,12 @@
     subdivision: 4,
     bpmAnim: true,      // BPM 动画开关
     alignNotes: false,  // 对齐节奏开关
+    //   [{ kind:"add", id, beatVal } | { kind:"remove", uid } | { kind:"move", uid, to }]
+    noteEdits: [],
+    noteEditSeq: 1,     // 新增 note 的 id 自增号
     _parseRaw: undefined, // 最近一次解析的原始数据, 用于切换 drag 开关后就地重解析
-    _parseKind: undefined // 最近一次解析的格式 kind
+    _parseKind: undefined, // 最近一次解析的格式 kind
+    _noteListChart: null
   }
 
   const $ = id => document.getElementById(id)  // 唉怎么想到的这个有点强
@@ -1555,9 +1677,13 @@
     state.chart = null
     state.timeSigs = []
     state.selectedMeterBeat = null
+    resetNoteEdits()
     clearMeterJsonInput()
     $("meterStatus").textContent = ""
+    $("noteStatus").textContent = ""
+    $("noteAddInput").value = ""
     syncMeterEditor()
+    syncNoteEditor()
     state.curSec = 0
     state.playFromSec = 0
     state.wallStartPerf = 0
@@ -1575,6 +1701,7 @@
     $("holdTailBtn").disabled = true
     $("chordBtn").disabled = true
     $("bpmAnimBtn").disabled = true
+    $("meterBtn").disabled = true
     $("alignBtn").disabled = true
     $("exportBtn").disabled = true
     $("fileLabel").firstChild.textContent = "加载谱面 "
@@ -1791,6 +1918,7 @@
   function selectMeterBeat(beat) {
     if (!state.chart || state.exporting) return
     pause()
+    state.selectedMeterBeat = beat
     const meter = meterAtBeat(beat)
     $("meterBeatInput").value = formatMeterBeat(beat)
     $("meterNumeratorInput").value = meter.num
@@ -1801,7 +1929,8 @@
     denominatorInput.value = meter.den
     $("meterEditor").open = true
     $("meterStatus").textContent = "已选择第 " + formatMeterBeat(beat) + " 拍（" + fmtTime(beatToSecond(beat, state.chart.bpmSegments)) + "）"
-    for (const el of $("timeline")._noteEls || []) el.classList.toggle("selected", Math.abs(Number(el.dataset.beat) - beat) < 1e-6)
+    selectNoteBeat(beat)
+    locateNoteRow(beat)
   }
   $("meterCurrentBtn").addEventListener("click", function () {
     if (state.chart) selectMeterBeat(Math.max(0, Math.min(state.chart.totalBeats, state.playBeat)))
@@ -1886,17 +2015,279 @@
   })
   syncMeterEditor()
 
+  /* ===== 编辑 note：增 / 删 / 改音符 ===== */
+  function resetNoteEdits() {
+    state.noteEdits = []
+    state.noteEditSeq = 1
+  }
+  resetNoteEdits()
+
+  function parseBeatText(text) {
+    let s = String(text == null ? "" : text).trim()
+    if (!s) return null
+    s = s.replace(/[\uFF10-\uFF19]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0) })
+      .replace(/[\uFF0F\u2044]/g, "/").replace(/\uFF0E/g, ".").replace(/\u3000/g, " ")
+    let m = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/)      // 带分数
+    if (m) return Number(m[3]) ? Number(m[1]) + Number(m[2]) / Number(m[3]) : null
+    m = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+)$/)        // 纯分数
+    if (m) return Number(m[2]) ? Number(m[1]) / Number(m[2]) : null
+    m = s.match(/^\d+(?:\.\d+)?$/)                       // 小数
+    return m ? Number(s) : null
+  }
+  function noteBeatAt(beat) {
+    if (!state.chart) return null
+    for (const nt of state.chart.notes) {
+      if (Math.abs(nt.beatVal - beat) < 1e-6) return nt
+    }
+    return null
+  }
+  // uid 属于用户新增（"a:<id>"）还是谱面原生（"s:<原始拍位键>:<该拍内序号>"）
+  function isAddedUid(uid) { return typeof uid === "string" && uid.slice(0, 2) === "a:" }
+  function addIdOfUid(uid) { return Number(uid.slice(2)) }
+
+  function syncNoteAddButtons() {
+    $("noteUseSelectedBtn").disabled = !state.chart || state.exporting || state.selectedMeterBeat === null
+  }
+
+  function selectNoteBeat(beat) {
+    if (!state.chart) return
+    state.selectedMeterBeat = beat
+    for (const el of $("timeline")._noteEls || []) {
+      el.classList.toggle("selected", Math.abs(Number(el.dataset.beat) - beat) < 1e-6)
+    }
+    for (const row of $("noteList").children) {
+      row.classList.toggle("selected", Math.abs(Number(row.dataset.beat) - beat) < 1e-6)
+    }
+    syncNoteAddButtons()
+  }
+
+  function locateNoteRow(beat) {
+    if (!state.chart || !noteBeatAt(beat)) return
+    if (!$("noteListEditor").open) return
+    const list = $("noteList")
+    if (!list.children.length) buildNoteList()
+    let first = null
+    for (const r of list.children) {
+      const hit = Math.abs(Number(r.dataset.beat) - beat) < 1e-6
+      r.classList.toggle("selected", hit)
+      if (hit && !first) first = r
+    }
+    if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest" })
+  }
+
+  function buildNoteList() {
+    const list = $("noteList")
+    const keepScroll = list.scrollTop   // 重建后保持滚动位置
+    list.replaceChildren()
+    state._noteListChart = state.chart
+    if (!state.chart) return
+    const notes = state.chart.notes
+    const sel = state.selectedMeterBeat
+    const disabled = state.exporting
+    const frag = document.createDocumentFragment()
+    let seq = 0
+    for (let i = 0; i < notes.length; i++) {
+      const nt = notes[i]
+      const uids = (nt.uids && nt.uids.length) ? nt.uids : [nt.uid || ""]
+      for (let k = 0; k < uids.length; k++) {
+        const uid = uids[k]
+        seq++
+        const row = document.createElement("div")
+        row.className = "meter-entry note-row" + (uids.length > 1 ? " chord-row" : "")
+        row.dataset.beat = String(nt.beatVal)
+        row.dataset.uid = uid
+        if (sel !== null && Math.abs(nt.beatVal - sel) < 1e-6) row.classList.add("selected")
+
+        const idx = document.createElement("span")
+        idx.className = "note-row-index"
+        idx.textContent = "#" + seq
+
+        const head = document.createElement("span")
+        head.textContent = "第"
+
+        const input = document.createElement("input")
+        input.type = "text"
+        input.className = "note-beat-input"
+        input.value = formatMeterBeat(nt.beatVal)
+        input.dataset.oldBeat = String(nt.beatVal)
+        input.disabled = disabled
+        input.addEventListener("focus", function () { selectNoteBeat(Number(row.dataset.beat)) })
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); this.blur() }
+          if (e.key === "Escape") { this.value = formatMeterBeat(Number(this.dataset.oldBeat)); this.blur() }
+        })
+        input.addEventListener("blur", function () { commitNoteMove(row.dataset.uid, this) })
+
+        const tail = document.createElement("span")
+        tail.textContent = "拍"
+
+        const remove = document.createElement("button")
+        remove.textContent = "删除"
+        remove.disabled = disabled
+        remove.addEventListener("click", function () { deleteNoteByUid(row.dataset.uid) })
+
+        row.append(idx, head, input, tail)
+        if (uids.length > 1) {
+          const chord = document.createElement("span")
+          chord.className = "note-row-chord"
+          chord.textContent = "多押 " + (k + 1) + "/" + uids.length
+          row.appendChild(chord)
+        }
+        if (isAddedUid(uid)) {
+          const tag = document.createElement("span")
+          tag.className = "note-row-tag"
+          tag.textContent = "新增"
+          row.appendChild(tag)
+        }
+        row.appendChild(remove)
+        row.addEventListener("click", function (e) {
+          if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return
+          selectMeterBeat(Number(row.dataset.beat))
+        })
+        frag.appendChild(row)
+      }
+    }
+    list.appendChild(frag)
+    list.scrollTop = keepScroll
+  }
+
+  function syncNoteEditor() {
+    const hasChart = !!state.chart
+    const disabled = !hasChart || state.exporting
+    for (const id of ["noteAddInput", "noteAddBtn", "noteUsePlayheadBtn"]) $(id).disabled = disabled
+    syncNoteAddButtons()
+    let n = 0
+    if (hasChart) {
+      for (const nt of state.chart.notes) n += (nt.uids && nt.uids.length) ? nt.uids.length : 1
+    }
+    $("noteEditCount").textContent = String(n)
+    $("noteListCount").textContent = String(n)
+    if ($("noteListEditor").open) {
+      if (state._noteListChart !== state.chart || $("noteList").children.length !== n) buildNoteList()
+    } else {
+      $("noteList").replaceChildren()
+    }
+  }
+
+  // 编辑后重解析重绘
+  function rerenderAfterNoteEdit(statusText, selectBeat) {
+    if (!state.chart || state._parseRaw === undefined || state.exporting) return
+    const position = Math.min(state.curSec, state.chart.playEndSeconds)
+    try {
+      pause()
+      const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
+      state.chart = chart
+      renderTimeline()
+      updatePlayhead(position, true)
+      if (selectBeat !== undefined && selectBeat !== null) selectMeterBeat(selectBeat)
+    } catch (err) {
+      console.error("note 编辑重解析失败:", err)
+      $("noteStatus").textContent = "重解析失败：" + err.message
+      return
+    }
+    if (statusText) $("noteStatus").textContent = statusText
+  }
+
+  function addNoteFromInput() {
+    if (!state.chart || state.exporting) return
+    const raw = $("noteAddInput").value
+    const beat = parseBeatText(raw)
+    if (beat === null) {
+      $("noteStatus").textContent = "无法解析「" + raw + "」"
+      return
+    }
+    if (beat > state.chart.chartEndBeat + 1e-6) {
+      $("noteStatus").textContent = "不能超过谱面结尾（第 " + formatMeterBeat(state.chart.chartEndBeat) + " 拍，最后一个音符在第 " + formatMeterBeat(state.chart.totalBeats) + " 拍）。"
+      return
+    }
+    const exist = noteBeatAt(beat)
+    const others = exist ? exist.chordCount : 0
+    state.noteEdits.push({ kind: "add", id: state.noteEditSeq++, beatVal: beat })
+    $("noteAddInput").value = ""
+    rerenderAfterNoteEdit(others > 0
+      ? "第 " + formatMeterBeat(beat) + " 拍已有 " + others + " 个音，已作为多押加入（共 " + (others + 1) + " 个）。"
+      : "已在第 " + formatMeterBeat(beat) + " 拍添加 note。", beat)
+    $("noteAddInput").focus()
+  }
+
+  // 删除 note
+  function deleteNoteByUid(uid) {
+    if (!state.chart || state.exporting || !uid) return
+    state.noteEdits = state.noteEdits.filter(function (e) {
+      return !(e.kind === "move" && e.uid === uid)
+    })
+    if (isAddedUid(uid)) {
+      const id = addIdOfUid(uid)
+      state.noteEdits = state.noteEdits.filter(function (e) { return !(e.kind === "add" && e.id === id) })
+    } else {
+      state.noteEdits.push({ kind: "remove", uid: uid })
+    }
+    rerenderAfterNoteEdit("已删除该 note。")
+  }
+
+  function commitNoteMove(uid, input) {
+    if (!state.chart || state.exporting || !uid) return
+    const oldBeat = Number(input.dataset.oldBeat)
+    const beat = parseBeatText(input.value)
+    if (beat === null) {
+      input.value = formatMeterBeat(oldBeat)
+      $("noteStatus").textContent = "无法解析「" + input.value + "」，已还原"
+      return
+    }
+    if (Math.abs(beat - oldBeat) < 1e-9) { input.value = formatMeterBeat(oldBeat); return }
+    if (beat > state.chart.chartEndBeat + 1e-6) {
+      input.value = formatMeterBeat(oldBeat)
+      $("noteStatus").textContent = "不能超过谱面结尾（第 " + formatMeterBeat(state.chart.chartEndBeat) + " 拍），已还原"
+      return
+    }
+    let others = 0
+    for (const nt of state.chart.notes) {
+      if (Math.abs(nt.beatVal - beat) < 1e-6 && nt.uids.indexOf(uid) < 0) others += nt.chordCount
+    }
+    if (isAddedUid(uid)) {
+      const rec = state.noteEdits.find(function (e) { return e.kind === "add" && e.id === addIdOfUid(uid) })
+      if (rec) rec.beatVal = beat
+    } else {
+      const rec = state.noteEdits.find(function (e) { return e.kind === "move" && e.uid === uid })
+      if (rec) rec.to = beat
+      else state.noteEdits.push({ kind: "move", uid: uid, to: beat })
+    }
+    rerenderAfterNoteEdit(others > 0
+      ? "第 " + formatMeterBeat(oldBeat) + " 拍 → 第 " + formatMeterBeat(beat) + " 拍，与该拍已有的 " + others + " 个音并成多押（共 " + (others + 1) + " 个）。"
+      : "第 " + formatMeterBeat(oldBeat) + " 拍 → 第 " + formatMeterBeat(beat) + " 拍。", beat)
+  }
+
+  $("noteAddBtn").addEventListener("click", addNoteFromInput)
+  $("noteAddInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); addNoteFromInput() }
+  })
+  $("noteUsePlayheadBtn").addEventListener("click", function () {
+    if (!state.chart || state.exporting) return
+    $("noteAddInput").value = formatMeterBeat(Math.max(0, Math.min(state.chart.chartEndBeat, state.playBeat)))
+  })
+  $("noteUseSelectedBtn").addEventListener("click", function () {
+    if (!state.chart || state.exporting || state.selectedMeterBeat === null) return
+    $("noteAddInput").value = formatMeterBeat(state.selectedMeterBeat)
+    $("noteStatus").textContent = "已填入选中位置：第 " + formatMeterBeat(state.selectedMeterBeat) + " 拍。"
+    $("noteAddInput").focus()
+  })
+  $("noteListEditor").addEventListener("toggle", function () {
+    if (this.open) buildNoteList()
+    else $("noteList").replaceChildren()
+  })
+  syncNoteEditor()
+
   /* 轴流动速度：只缩放时间轴横坐标（音符间距），不改音乐播放速度 */
   function updateTimelineWidth() {
     if (!state.chart) return
     const timeline = $("timeline")
     timeline.style.minWidth = Math.max(6000, (timeline._maxBeat || 0) * state.pixelsPerBeat + 800) + "px"
   }
-    function applyAxisLength() {
-      return 120 * (state.noteScale || 1) * Number($("flowSpeed").value)
-    }
-    function rescaleAxis(previousPpb) {
-      state.pixelsPerBeat = applyAxisLength()
+  function applyAxisLength() {
+    return 120 * (state.noteScale || 1) * Number($("flowSpeed").value)
+  }
+  function rescaleAxis(previousPpb) {
+    state.pixelsPerBeat = applyAxisLength()
     if (!state.chart) return
     const timeline = $("timeline")
     const ratio = state.pixelsPerBeat / previousPpb
@@ -1906,11 +2297,11 @@
     }
     updateTimelineWidth()
     updatePlayhead(state.curSec, true)
-    }
-    $("flowSpeed").addEventListener("input", function () {
-      if (state.exporting) return
-      $("flowSpeedValue").value = Number(this.value).toFixed(2) + "×"
-      rescaleAxis(state.pixelsPerBeat)
+  }
+  $("flowSpeed").addEventListener("input", function () {
+    if (state.exporting) return
+    $("flowSpeedValue").value = Number(this.value).toFixed(2) + "×"
+    rescaleAxis(state.pixelsPerBeat)
   })
 
   function renderTimeline() {
@@ -1999,9 +2390,10 @@
       el.style.left = x + "px"
       el.dataset.beat = nt.beatVal
       el.dataset.chord = nt.chordCount
+      el.dataset.uid = nt.uid || ""
       el.classList.toggle("selected", state.selectedMeterBeat !== null && Math.abs(nt.beatVal - state.selectedMeterBeat) < 1e-6)
       el.classList.add("meter-selectable")
-      el.title = "第 " + formatMeterBeat(nt.beatVal) + " 拍 · 点击设为拍号节点"
+      el.title = "第 " + formatMeterBeat(nt.beatVal) + " 拍 · 点击选中（拍号节点 / 定位到 note 列表）"
       el.addEventListener("click", function () { selectMeterBeat(nt.beatVal) })
       const shapeInner = document.createElement("div")
       shapeInner.className = "shape"
@@ -2044,6 +2436,7 @@
     timeline._noteEls = Array.from(timeline.querySelectorAll(".note"))
     timeline._hiddenIdx = 0
     syncMeterEditor()
+    syncNoteEditor()
 
     state.lastShownBpm = Math.round(chart.bpmFirst * 100) / 100
     $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(chart.totalSeconds)
@@ -2058,6 +2451,7 @@
     $("holdTailBtn").disabled = false
     $("chordBtn").disabled = false
     $("bpmAnimBtn").disabled = false
+    $("meterBtn").disabled = false
     $("alignBtn").disabled = false
     $("exportBtn").disabled = false
   }
@@ -2114,6 +2508,7 @@
     state.playBeat = beat
     const meterNow = meterAtBeat(beat)
     $("currentMeter").textContent = meterNow.num + "/" + meterNow.den
+    $("bpmMeter").textContent = meterNow.num + "/" + meterNow.den
 
     const roundedBpm = Math.round(bpmAt(beat) * 100) / 100
     if (roundedBpm !== state.lastShownBpm) {
@@ -2236,7 +2631,8 @@
         // 扩展名传给解析器分发格式
         const ext = (f.name.split(".").pop() || "").toLowerCase()
         state._parseRaw = raw; state._parseKind = ext
-        const chart = parseChart(raw, { kind: ext, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
+        resetNoteEdits()   // 换谱面清空增 / 删 / 改
+        const chart = parseChart(raw, { kind: ext, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
         if (!chart.notes.length) {
           alert("未在谱面中找到note！")
           return
@@ -2265,7 +2661,8 @@
       let raw
       try { raw = JSON.parse(text) } catch (e) { raw = text }
       state._parseRaw = raw; state._parseKind = undefined
-      const chart = parseChart(raw, { showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
+      resetNoteEdits()
+      const chart = parseChart(raw, { showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
       state.timeSigs = []
       state.selectedMeterBeat = null
       clearMeterJsonInput()
@@ -2282,6 +2679,8 @@
   $("pauseBtn").addEventListener("click", pause)
   $("resetBtn").addEventListener("click", reset)
   $("bpmAnimBtn").classList.toggle("active", state.bpmAnim)
+  $("meterBtn").classList.toggle("active", state.showMeter)
+  document.body.classList.toggle("show-meter", state.showMeter)
   // drag 显示模式
   const DRAG_MODES = ["off", "all", "first"]
   const DRAG_MODE_LABEL = { off: "显示 drag", all: "显示 drag", first: "显示首个 drag" }
@@ -2302,7 +2701,7 @@
     // 如果当前有谱面数据用解析时保存的raw+kind重跑parseChart
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -2321,7 +2720,7 @@
     try { localStorage.setItem("showHoldTail", state.showHoldTail ? "1" : "0") } catch (_) { }
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -2380,6 +2779,12 @@
     if (!state.bpmAnim) $("bpmPanel").classList.remove("flash")
   })
 
+  $("meterBtn").addEventListener("click", function () {
+    state.showMeter = !state.showMeter
+    $("meterBtn").classList.toggle("active", state.showMeter)
+    document.body.classList.toggle("show-meter", state.showMeter)
+  })
+
   // 对齐节奏
   $("alignBtn").addEventListener("click", function () {
     if (state.exporting) return
@@ -2387,7 +2792,7 @@
     $("alignBtn").classList.toggle("active", state.alignNotes)
     if (state._parseRaw !== undefined) {
       try {
-        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes })
+        const chart = parseChart(state._parseRaw, { kind: state._parseKind, showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
         if (!chart.notes.length) return
         pause()
         state.chart = chart
@@ -2428,19 +2833,19 @@
   $("valueFontInput").addEventListener("change", applyValueFont)
   applyFontSizes()
 
-    // note 缩放
-    state.noteScale = 1
-    $("noteScaleInput").addEventListener("change", function () {
-      if (state.exporting) return
-      let v = parseInt(this.value, 10)
-      if (!isFinite(v) || v < 30) v = 100
-      if (v > 300) v = 300
-      this.value = v
-      const previous = state.pixelsPerBeat
-      state.noteScale = v / 100
-      document.documentElement.style.setProperty("--note-scale", state.noteScale)
-      rescaleAxis(previous)
-    })
+  // note 缩放
+  state.noteScale = 1
+  $("noteScaleInput").addEventListener("change", function () {
+    if (state.exporting) return
+    let v = parseInt(this.value, 10)
+    if (!isFinite(v) || v < 30) v = 100
+    if (v > 300) v = 300
+    this.value = v
+    const previous = state.pixelsPerBeat
+    state.noteScale = v / 100
+    document.documentElement.style.setProperty("--note-scale", state.noteScale)
+    rescaleAxis(previous)
+  })
 
   // 导出设置模态框：点导出弹出；选项联动；开始后走原导出进度流程
   function syncExportModal() {
@@ -2482,11 +2887,11 @@
     else $("fmtHint").style.color = ""
   }
 
-    // 输出宽度
-    function refreshExportWidth() {
-      const box = document.querySelector(".chart-area")
-      if (box) $("optWidth").value = Math.floor((box.clientWidth - 24) / 2) * 2
-    }
+  // 输出宽度
+  function refreshExportWidth() {
+    const box = document.querySelector(".chart-area")
+    if (box) $("optWidth").value = Math.floor((box.clientWidth - 24) / 2) * 2
+  }
 
   $("exportBtn").addEventListener("click", function () {
     if (state.exporting) { cancelExport(); return }
