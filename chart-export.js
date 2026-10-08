@@ -24,6 +24,7 @@ let EXPORT_SR = 48000     // 音频采样率
 let exportBg = "black"
 let exportFmt = "source"  // "source" / "mp4" / "mkv" / "mov" / "avi"
 let exportPanelT = false  // BPM 面板透明
+let exportBgAlpha = 0  // 不透明度
 // BPM 动画状态
 let exportLastShownBpm = null
 let exportBpmFlashStartSec = -1 // 最近一次 BPM 切换对应的导出视频秒数；-1 表示无动画中
@@ -409,6 +410,29 @@ async function exportPngSequence(chart, outputDur) {
     不要用playEndSeconds/speed！！！！！！！会有累计误差越来越偏！！！！！！！！！！！！！！！1
 
    ========================================================= */
+const ENGINE_FETCH_ATTEMPTS = 3
+async function fetchEngineBlobURL(u, type, progressLabel) {
+  let lastErr = null
+  for (let attempt = 1; attempt <= ENGINE_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetch(u, { cache: attempt === 1 ? "default" : "reload" })
+      if (!resp.ok) throw new Error("HTTP " + resp.status)
+      const ab = await resp.arrayBuffer()
+      return URL.createObjectURL(new Blob([new Uint8Array(ab)], { type }))
+    } catch (err) {
+      lastErr = err
+      if (attempt < ENGINE_FETCH_ATTEMPTS) {
+        console.log("[导出引擎] 资源抓取失败，重试 " + attempt + "/" + (ENGINE_FETCH_ATTEMPTS - 1) +
+          "：" + u + "（" + (err && err.message) + "）")
+        if (progressLabel) setExportProgress(exportProgressCurrent, progressLabel + "（重试 " + attempt + "/" + (ENGINE_FETCH_ATTEMPTS - 1) + "）…")
+        await new Promise(r => setTimeout(r, 250 * attempt))
+      }
+    }
+  }
+  throw new Error("导出引擎资源加载失败（" + u + "）：" + (lastErr && lastErr.message ? lastErr.message : lastErr) +
+    "\n已重试 " + ENGINE_FETCH_ATTEMPTS + " 次")
+}
+
 async function exportWebmTransparent(chart, outputDur, mixed) {
   const speed = state.speed
   const durSec = mixed ? mixed.duration : outputDur
@@ -416,11 +440,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
 
   const { FFmpeg } = await import("./lib/ffmpeg/index.js")
 
-  const blobURL = async (u, type) => {
-    const resp = await fetch(u)
-    const b = await resp.blob()
-    return URL.createObjectURL(new Blob([b], { type }))
-  }
+  const blobURL = (u, type) => fetchEngineBlobURL(u, type, "加载透明 MOV 导出引擎")
 
   setExportProgress(5, "加载透明 MOV 导出引擎…")
   await new Promise(r => setTimeout(r, 0))
@@ -625,11 +645,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
   const { FFmpeg } = await import("./lib/ffmpeg/index.js")
   const ffmpeg = new FFmpeg()
   ffmpeg._lastLogs = []
-  const blobURL = async (u, type) => {
-    const resp = await fetch(u)
-    const b = await resp.blob()
-    return URL.createObjectURL(new Blob([b], { type }))
-  }
+  const blobURL = (u, type) => fetchEngineBlobURL(u, type, "加载格式转换引擎")
   const runExecLocal = async (args, stageLabel) => {
     const argsStr = args.join(" ")
     console.log("[convert " + stageLabel + "] ffmpeg " + argsStr)
@@ -841,6 +857,12 @@ function drawExportFrame(sec) {
   ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, -EXPORT_CROP_L * EXPORT_SCALE, -EXPORT_CROP_T * EXPORT_SCALE)
   if (exportBg !== "black") {
     ctx.clearRect(EXPORT_CROP_L, EXPORT_CROP_T, W, H)
+    if (exportBgAlpha > 0) {
+      ctx.globalAlpha = exportBgAlpha
+      ctx.fillStyle = "#000"
+      ctx.fillRect(EXPORT_CROP_L + 130, EXPORT_CROP_T, W - 130, H)
+      ctx.globalAlpha = 1
+    }
   } else {
     ctx.fillStyle = "#000"
     ctx.fillRect(EXPORT_CROP_L, EXPORT_CROP_T, W, H)
@@ -978,9 +1000,11 @@ function drawExportFrame(sec) {
   // bpmGlow: 光晕强度1→0，随ease衰减
   const bpmGlow = rawP < 0 ? 0 : Math.max(0, 1 - pEase)
 
-  if (exportPanelT && exportBg !== "black") {
-    ctx.clearRect(24, y0, 130, 140)
-  } else {
+  ctx.clearRect(24, y0, 130, 140)
+  // 面板底色
+  const panelAlpha = exportPanelT ? exportBgAlpha : 1
+  if (panelAlpha > 0) {
+    ctx.globalAlpha = panelAlpha
     ctx.fillStyle = "#0f172a"
     ctx.fillRect(24, y0, 130, 140)
     if (bpmGlow > 0.001) {
@@ -988,6 +1012,7 @@ function drawExportFrame(sec) {
       ctx.fillStyle = "rgba(255,255,255," + glowAlpha.toFixed(5) + ")"
       ctx.fillRect(24, y0, 130, 140)
     }
+    ctx.globalAlpha = 1
   }
   ctx.strokeStyle = "rgba(255,255,255,0.15)"
   ctx.lineWidth = 1
@@ -1051,6 +1076,8 @@ function drawExportFrame(sec) {
   ctx.beginPath()
   ctx.arc(judgeX, midY, 19 * ns - 1.25 * ns, 0, Math.PI * 2)
   ctx.stroke()
+
+  ctx.globalAlpha = 1
 }
 
 function restoreAfterExport() {
@@ -1073,6 +1100,9 @@ async function startExport(cfg) {
   exportBg = c.bg || "black"
   exportFmt = c.fmt || "source"
   exportPanelT = !!c.panelTransparent && exportBg !== "black"
+  // 背景不透明度
+  exportBgAlpha = (exportBg === "black") ? 0
+    : Math.max(0, Math.min(1, (c.bgAlpha > 0 ? c.bgAlpha : 0) / 100))
   EXPORT_FPS = c.fps || 60
   EXPORT_SR = (exportBg == "transparent" || exportBg == "pngseq") ? 48000 : (c.sr || 48000)
   const isWebm = exportBg == "transparent"

@@ -199,6 +199,17 @@
     width: 80px;
   }
 
+  #optOpacity {
+    width: 130px;
+    accent-color: #4da6ff;
+  }
+
+  #optOpacityVal {
+    min-width: 4ch;
+    color: #bfdbfe;
+    font-variant-numeric: tabular-nums;
+  }
+
   #barFontInput::-webkit-outer-spin-button,
   #barFontInput::-webkit-inner-spin-button,
   #valueFontInput::-webkit-outer-spin-button,
@@ -1503,6 +1514,13 @@
         <label><input type="checkbox" id="optPanel"> BPM 面板透明</label>
       </div>
       <div class="form-row">
+        <span>背景不透明度</span>
+        <span class="ctl-group">
+          <input type="range" id="optOpacity" min="0" max="100" step="5" value="0">
+          <output id="optOpacityVal" for="optOpacity">0%</output>
+        </span>
+        </div>
+        <div class="form-row">
         <span>输出宽度</span>
         <span class="ctl-group">
           <input type="number" id="optWidth" min="0" max="7680" step="2" value="0" title="导出画面宽度（pixels）。0 = 跟随窗口宽度">
@@ -2853,6 +2871,7 @@
     const fmt = $("optFmt").value
     $("optPanel").disabled = bg == "black"
     if (bg == "black") $("optPanel").checked = false
+    $("optOpacity").disabled = bg == "black"
     // Opus 只支持 48kHz
     if (bg == "transparent" || bg == "pngseq") {
       $("optSr").value = "48000"
@@ -2902,6 +2921,9 @@
 
   $("optBg").addEventListener("change", syncExportModal)
   $("optFmt").addEventListener("change", syncExportModal)
+    $("optOpacity").addEventListener("input", function () {
+      $("optOpacityVal").textContent = this.value + "%"
+    })
 
   $("modalCancelBtn").addEventListener("click", function () {
     $("exportModal").classList.remove("open")
@@ -2932,6 +2954,7 @@
     startExport({
       bg: $("optBg").value,
       panelTransparent: $("optPanel").checked,
+      bgAlpha: parseInt($("optOpacity").value, 10) || 0,
       fps: parseInt($("optFps").value, 10),
       sr: parseInt($("optSr").value, 10),
       fmt: $("optFmt").value
