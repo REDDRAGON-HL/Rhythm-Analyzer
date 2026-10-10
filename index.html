@@ -170,6 +170,94 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .load-picker {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .load-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 60;
+    display: none;
+    min-width: 200px;
+    max-width: 420px;
+    padding: 6px;
+    background: #0f172a;
+    border: 1px solid rgba(77, 166, 255, 0.45);
+    border-radius: 8px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65);
+  }
+
+  .load-picker.open .load-menu {
+    display: block;
+  }
+
+  .load-menu-action {
+    padding: 6px 10px;
+    border-radius: 5px;
+    color: #93c5fd;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .load-menu-action:hover {
+    background: rgba(77, 166, 255, 0.18);
+    color: #eff6ff;
+  }
+
+  .load-menu-status {
+    padding: 2px 10px 4px;
+    color: #64748b;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .load-menu-sep {
+    height: 1px;
+    margin: 4px 2px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .load-menu-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .load-menu-item {
+    padding: 6px 10px;
+    border-radius: 5px;
+    color: #cbd5e1;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .load-menu-item:hover {
+    background: rgba(77, 166, 255, 0.18);
+    color: #eff6ff;
+  }
+
+  .load-menu-item.active {
+    background: rgba(52, 211, 153, 0.16);
+    color: #a7f3d0;
+  }
+
+  .load-menu-empty {
+    padding: 6px 10px;
+    color: #64748b;
+    font-size: 12px;
+  }
+
   /* 播放行字号 / 导出宽度输入框：与信息栏输入框同款，配色贴合蓝色控件 */
   #barFontInput,
   #valueFontInput,
@@ -1339,15 +1427,23 @@
       </span>
     </div>
     <div class="toolbar sub-row">
-      <label class="file-label" id="fileLabel" title="右键点击取消载入">加载谱面
-        <input type="file" id="fileInput" accept=".json,.mc,.osu,.txt">
-      </label>
-      <label class="file-label" id="songLabel" title="右键点击取消载入">加载音乐
-        <input type="file" id="songInput" accept="audio/*">
-      </label>
+      <span class="load-picker" id="chartPicker">
+        <label class="file-label" id="fileLabel">加载谱面
+          <input type="file" id="fileInput" accept=".json,.mc,.osu,.txt">
+        </label>
+        <div class="load-menu" id="chartMenu"></div>
+      </span>
+      <span class="load-picker" id="songPicker">
+        <label class="file-label" id="songLabel">加载音乐
+          <input type="file" id="songInput" accept="audio/*">
+        </label>
+        <div class="load-menu" id="songMenu"></div>
+      </span>
       <label class="file-label" id="hitLabel" title="右键点击取消载入">加载打击音
         <input type="file" id="hitInput" accept="audio/*">
       </label>
+      <input type="file" id="folderInput" webkitdirectory multiple hidden>
+      <input type="file" id="zipInput" multiple hidden>
       <span class="audio-ctl">音乐音量
         <input type="range" id="songVol" min="0" max="100" value="100" title="曲子音量">
         <span class="vol-val" id="songVolVal">100</span>
@@ -1519,8 +1615,8 @@
           <input type="range" id="optOpacity" min="0" max="100" step="5" value="0">
           <output id="optOpacityVal" for="optOpacity">0%</output>
         </span>
-        </div>
-        <div class="form-row">
+      </div>
+      <div class="form-row">
         <span>输出宽度</span>
         <span class="ctl-group">
           <input type="number" id="optWidth" min="0" max="7680" step="2" value="0" title="导出画面宽度（pixels）。0 = 跟随窗口宽度">
@@ -1609,7 +1705,12 @@
     noteEditSeq: 1,     // 新增 note 的 id 自增号
     _parseRaw: undefined, // 最近一次解析的原始数据, 用于切换 drag 开关后就地重解析
     _parseKind: undefined, // 最近一次解析的格式 kind
-    _noteListChart: null
+    _noteListChart: null,
+    // 批量导入
+    library: { charts: [], audio: [] },
+    loadedChartName: "",
+    loadedSongName: "",
+    libStatusText: ""
   }
 
   const $ = id => document.getElementById(id)  // 唉怎么想到的这个有点强
@@ -1653,9 +1754,7 @@
     $("songVolVal").textContent = e.target.value
   })
 
-  $("songInput").addEventListener("change", function (e) {
-    const f = e.target.files[0]
-    e.target.value = ""
+  function loadSongFile(f) {
     if (!f) return
     stopSong()
     if (songAudio) URL.revokeObjectURL(songAudio.src)
@@ -1669,11 +1768,18 @@
       if (state.chart) renderTimeline()
     })
     $("songLabel").firstChild.textContent = f.name + " "
-  })
+    state.loadedSongName = f.name
+    addToLibrary("audio", f)
+    renderMenus()
+  }
 
-  $("hitInput").addEventListener("change", function (e) {
+  $("songInput").addEventListener("change", function (e) {
     const f = e.target.files[0]
     e.target.value = ""
+    loadSongFile(f)
+  })
+
+  function loadHitFile(f) {
     if (!f) return
     const url = URL.createObjectURL(f)
     hitPool = []
@@ -1684,6 +1790,12 @@
     }
     hitPoolIdx = 0
     $("hitLabel").firstChild.textContent = f.name + " "
+  }
+
+  $("hitInput").addEventListener("change", function (e) {
+    const f = e.target.files[0]
+    e.target.value = ""
+    loadHitFile(f)
   })
 
   //右键取消载入
@@ -1723,11 +1835,16 @@
     $("alignBtn").disabled = true
     $("exportBtn").disabled = true
     $("fileLabel").firstChild.textContent = "加载谱面 "
+    state.loadedChartName = ""
+    renderMenus()
   }
 
   $("fileLabel").addEventListener("contextmenu", function (e) {
     e.preventDefault()
     unloadChart()
+    state.library.charts = []
+    state.libStatusText = ""
+    renderMenus()
   })
 
   $("songLabel").addEventListener("contextmenu", function (e) {
@@ -1738,6 +1855,10 @@
       songAudio = null
     }
     $("songLabel").firstChild.textContent = "加载音乐 "
+    state.loadedSongName = ""
+    state.library.audio = []
+    state.libStatusText = ""
+    renderMenus()
   })
 
   $("hitLabel").addEventListener("contextmenu", function (e) {
@@ -2635,8 +2756,7 @@
   }
 
 
-  $("fileInput").addEventListener("change", function (e) {
-    const f = e.target.files[0]
+    function loadChartFile(f) {
     if (!f) return
     $("fileLabel").firstChild.textContent = f.name + " "
     const reader = new FileReader()
@@ -2662,13 +2782,327 @@
         state.chart = chart
         renderTimeline()
         reset()
+        state.loadedChartName = f.name
+        addToLibrary("charts", f)
+        renderMenus()
       } catch (err) {
         alert("谱面解析失败: " + err.message)
         console.error(err)
       }
     }
     reader.readAsText(f, "utf-8")
+  }
+
+  $("fileInput").addEventListener("change", function (e) {
+    const f = e.target.files[0]
+    e.target.value = ""
+    loadChartFile(f)
   })
+
+  // 批量导入
+  const CHART_EXTS = ["json", "mc", "osu", "txt"]
+  const AUDIO_EXTS = ["mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus", "weba", "webm", "wma", "aif", "aiff"]
+
+  function fileExt(name) {
+    const s = String(name)
+    const i = s.lastIndexOf(".")
+    return i < 0 ? "" : s.slice(i + 1).toLowerCase()
+  }
+
+  function pathBase(p) {
+    const s = String(p).replace(/\\/g, "/")
+    const i = s.lastIndexOf("/")
+    return i < 0 ? s : s.slice(i + 1)
+  }
+
+  function pathDir(p) {
+    const s = String(p).replace(/\\/g, "/")
+    const i = s.lastIndexOf("/")
+    return i < 0 ? "" : s.slice(0, i)
+  }
+
+  function libPathOf(f) {
+    return f._libPath || f.webkitRelativePath || f.name
+  }
+
+  function looksLikeChart(text, ext) {
+    if (ext === "mc") return true
+    if (ext === "osu") return /osu file format v\d/i.test(text.slice(0, 200))
+    if (ext === "txt") return /#\s*(Version|BPM|Note)/i.test(text.slice(0, 400))
+    if (ext === "json") {
+      try {
+        const o = JSON.parse(text)
+        if (!o || typeof o !== "object") return false
+        return !!(o.judgeLineList || o.notes || o.note || o.bpmShifts || o.BPMList ||
+          o.format === "ICP1" || typeof o.formatVersion === "number")
+      } catch (_) { return false }
+    }
+    return false
+  }
+
+  function addToLibrary(kind, file) {
+    const list = state.library[kind]
+    const p = libPathOf(file)
+    if (list.some(function (x) { return x.name === file.name && x.file.size === file.size })) return false
+    list.push({ name: file.name, path: p, file: file })
+    return true
+  }
+
+  function decodeZipName(bytes, isUtf8) {
+    if (!isUtf8) {
+      try { return new TextDecoder("gbk").decode(bytes) } catch (_) { }
+    }
+    try { return new TextDecoder("utf-8").decode(bytes) } catch (_) { }
+    return ""
+  }
+
+  async function inflateRawBytes(bytes) {
+    if (typeof DecompressionStream === "undefined") {
+      throw new Error("当前浏览器不支持解压（DecompressionStream 不可用）")
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))
+    return new Uint8Array(await new Response(stream).arrayBuffer())
+  }
+
+  async function readZipEntries(file) {
+    const buf = new Uint8Array(await file.arrayBuffer())
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    let eocd = -1
+    const floor = Math.max(0, buf.length - 22 - 65535)
+    for (let i = buf.length - 22; i >= floor; i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break }
+    }
+    if (eocd < 0) throw new Error("不是有效的 zip 文件")
+    let total = dv.getUint16(eocd + 10, true)
+    let cdOff = dv.getUint32(eocd + 16, true)
+    if (total === 0xffff || cdOff === 0xffffffff) {
+      const loc = eocd - 20
+      if (loc >= 0 && dv.getUint32(loc, true) === 0x07064b50) {
+        const z64 = Number(dv.getBigUint64(loc + 8, true))
+        if (z64 >= 0 && z64 + 56 <= buf.length && dv.getUint32(z64, true) === 0x06064b50) {
+          total = Number(dv.getBigUint64(z64 + 32, true))
+          cdOff = Number(dv.getBigUint64(z64 + 48, true))
+        }
+      }
+    }
+    const out = []
+    let p = cdOff
+    for (let n = 0; n < total; n++) {
+      if (p + 46 > buf.length || dv.getUint32(p, true) !== 0x02014b50) break
+      const flag = dv.getUint16(p + 8, true)
+      const method = dv.getUint16(p + 10, true)
+      let compSize = dv.getUint32(p + 20, true)
+      let uncompSize = dv.getUint32(p + 24, true)
+      const nameLen = dv.getUint16(p + 28, true)
+      const extraLen = dv.getUint16(p + 30, true)
+      const commentLen = dv.getUint16(p + 32, true)
+      let localOff = dv.getUint32(p + 42, true)
+      const rawName = buf.subarray(p + 46, p + 46 + nameLen)
+      if (compSize === 0xffffffff || uncompSize === 0xffffffff || localOff === 0xffffffff) {
+        let e = p + 46 + nameLen
+        const end = e + extraLen
+        while (e + 4 <= end) {
+          const id = dv.getUint16(e, true)
+          const sz = dv.getUint16(e + 2, true)
+          if (id === 0x0001) {
+            let q = e + 4
+            if (uncompSize === 0xffffffff) { uncompSize = Number(dv.getBigUint64(q, true)); q += 8 }
+            if (compSize === 0xffffffff) { compSize = Number(dv.getBigUint64(q, true)); q += 8 }
+            if (localOff === 0xffffffff) { localOff = Number(dv.getBigUint64(q, true)); q += 8 }
+            break
+          }
+          e += 4 + sz
+        }
+      }
+      const name = decodeZipName(rawName, (flag & 0x800) !== 0)
+      const encrypted = (flag & 0x1) !== 0
+      if (name && !name.endsWith("/") && !encrypted &&
+        localOff + 30 <= buf.length && dv.getUint32(localOff, true) === 0x04034b50) {
+        const lhNameLen = dv.getUint16(localOff + 26, true)
+        const lhExtraLen = dv.getUint16(localOff + 28, true)
+        const dataStart = localOff + 30 + lhNameLen + lhExtraLen
+        out.push({ name: name, method: method, data: buf.subarray(dataStart, dataStart + compSize) })
+      }
+      p += 46 + nameLen + extraLen + commentLen
+    }
+    return out
+  }
+
+  function isIgnoredEntry(path) {
+    const s = String(path).replace(/\\/g, "/")
+    if (s.startsWith("__MACOSX/") || s.indexOf("/__MACOSX/") >= 0) return true
+    const base = pathBase(s)
+    return !base || base.startsWith(".")
+  }
+
+  async function importFiles(files) {
+    let chartN = 0, audioN = 0, skipN = 0
+    let firstChart = null, firstAudio = null
+    for (const f of files) {
+      const path = libPathOf(f)
+      if (isIgnoredEntry(path)) { skipN++; continue }
+      const ext = fileExt(f.name)
+      if (AUDIO_EXTS.indexOf(ext) >= 0) {
+        if (addToLibrary("audio", f)) { audioN++; if (!firstAudio) firstAudio = f }
+        continue
+      }
+      if (CHART_EXTS.indexOf(ext) < 0) { skipN++; continue }
+      let text = ""
+      try { text = await f.text() } catch (_) { skipN++; continue }
+      if (!looksLikeChart(text.replace(/^\uFEFF/, ""), ext)) { skipN++; continue }
+      if (addToLibrary("charts", f)) { chartN++; if (!firstChart) firstChart = f }
+    }
+    return { chartN: chartN, audioN: audioN, skipN: skipN, firstChart: firstChart, firstAudio: firstAudio }
+  }
+
+  const ZIP_SIGS = [0x504b0304, 0x504b0506, 0x504b0708]
+  async function looksLikeZip(file) {
+    if (!file || file.size < 4) return false
+    try {
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer())
+      if (head.length < 4) return false
+      const sig = ((head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3]) >>> 0
+      return ZIP_SIGS.indexOf(sig) >= 0
+    } catch (_) { return false }
+  }
+
+  async function importBundle(fileList) {
+    const files = Array.prototype.slice.call(fileList || [])
+    if (!files.length) return
+    const added = { chartN: 0, audioN: 0, skipN: 0, firstChart: null, firstAudio: null }
+    const errs = []
+    for (const f of files) {
+      try {
+        if (await looksLikeZip(f)) {
+          const entries = await readZipEntries(f)
+          const unpacked = []
+          for (const e of entries) {
+            if (isIgnoredEntry(e.name)) continue
+            let data = e.data
+            if (e.method === 8) data = await inflateRawBytes(data)
+            else if (e.method !== 0) continue
+            const nf = new File([data], pathBase(e.name))
+            nf._libPath = e.name
+            unpacked.push(nf)
+          }
+          const r = await importFiles(unpacked)
+          added.chartN += r.chartN; added.audioN += r.audioN; added.skipN += r.skipN
+          if (!added.firstChart) added.firstChart = r.firstChart
+          if (!added.firstAudio) added.firstAudio = r.firstAudio
+        } else {
+          const r = await importFiles([f])
+          added.chartN += r.chartN; added.audioN += r.audioN; added.skipN += r.skipN
+          if (!added.firstChart) added.firstChart = r.firstChart
+          if (!added.firstAudio) added.firstAudio = r.firstAudio
+        }
+      } catch (err) {
+        errs.push(f.name + "：" + err.message)
+        console.error(err)
+      }
+    }
+    if (errs.length) alert("有 " + errs.length + " 个文件导入失败：" + errs[0])
+    state.libStatusText = "已导入 " + added.chartN + " 谱面 / " + added.audioN + " 音频"
+    renderMenus()
+    if (added.firstChart) loadChartFile(added.firstChart)
+    if (added.firstAudio) loadSongFile(added.firstAudio)
+  }
+
+  $("folderInput").addEventListener("change", function (e) {
+    const files = Array.prototype.slice.call(e.target.files || [])
+    e.target.value = ""
+    importBundle(files)
+  })
+
+  $("zipInput").addEventListener("change", function (e) {
+    const files = Array.prototype.slice.call(e.target.files || [])
+    e.target.value = ""
+    importBundle(files)
+  })
+
+  function menuDisplayName(list, item) {
+    const dup = list.filter(function (x) { return x.name === item.name }).length > 1
+    if (!dup) return item.name
+    const dir = pathDir(item.path)
+    return item.name + "  ·  " + (dir || ".")
+  }
+
+  function addMenuAction(parent, text, onClick) {
+    const a = document.createElement("div")
+    a.className = "load-menu-action"
+    a.textContent = text
+    a.addEventListener("click", onClick)
+    parent.appendChild(a)
+  }
+
+  function fillMenu(menuId, list, activeName, kind) {
+    const el = $(menuId)
+    el.innerHTML = ""
+    addMenuAction(el, "导入文件夹", function () {
+      closePickers()
+      $("folderInput").click()
+    })
+    addMenuAction(el, "导入压缩包", function () {
+      closePickers()
+      $("zipInput").click()
+    })
+    if (state.libStatusText) {
+      const s = document.createElement("div")
+      s.className = "load-menu-status"
+      s.textContent = state.libStatusText
+      el.appendChild(s)
+    }
+    const sep = document.createElement("div")
+    sep.className = "load-menu-sep"
+    el.appendChild(sep)
+    const box = document.createElement("div")
+    box.className = "load-menu-list"
+    el.appendChild(box)
+    if (!list.length) {
+      const d = document.createElement("div")
+      d.className = "load-menu-empty"
+      d.textContent = "尚未导入文件夹或压缩包"
+      box.appendChild(d)
+      return
+    }
+    list.forEach(function (item) {
+      const b = document.createElement("div")
+      b.className = "load-menu-item" + (activeName && item.name === activeName ? " active" : "")
+      b.textContent = menuDisplayName(list, item)
+      b.title = item.path
+      b.addEventListener("click", function () {
+        closePickers()
+        if (kind === "chart") loadChartFile(item.file)
+        else loadSongFile(item.file)
+      })
+      box.appendChild(b)
+    })
+  }
+
+  function renderMenus() {
+    fillMenu("chartMenu", state.library.charts, state.loadedChartName, "chart")
+    fillMenu("songMenu", state.library.audio, state.loadedSongName, "song")
+  }
+
+  function closePickers() {
+    document.querySelectorAll(".load-picker.open").forEach(function (w) { w.classList.remove("open") })
+  }
+
+  function bindPicker(wrapId) {
+    const wrap = $(wrapId)
+    let timer = null
+    wrap.addEventListener("mouseenter", function () {
+      clearTimeout(timer)
+      closePickers()
+      wrap.classList.add("open")
+    })
+    wrap.addEventListener("mouseleave", function () {
+      clearTimeout(timer)
+      timer = setTimeout(function () { wrap.classList.remove("open") }, 160)
+    })
+  }
+  bindPicker("chartPicker")
+  bindPicker("songPicker")
+  renderMenus()
 
   $("demoBtn").addEventListener("click", async function () {
     // 尝试fetch test目录的示例谱
@@ -2688,6 +3122,8 @@
       state.chart = chart
       renderTimeline()
       reset()
+      state.loadedChartName = ""
+      renderMenus()
     } catch (err) {
       alert("载入示例失败")
     }
@@ -2921,9 +3357,9 @@
 
   $("optBg").addEventListener("change", syncExportModal)
   $("optFmt").addEventListener("change", syncExportModal)
-    $("optOpacity").addEventListener("input", function () {
-      $("optOpacityVal").textContent = this.value + "%"
-    })
+  $("optOpacity").addEventListener("input", function () {
+    $("optOpacityVal").textContent = this.value + "%"
+  })
 
   $("modalCancelBtn").addEventListener("click", function () {
     $("exportModal").classList.remove("open")
