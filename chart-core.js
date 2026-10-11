@@ -14,10 +14,12 @@
                      · 负值 = 音乐要等谱面时间走到 |bgmOffsetSec| 才入场
        musicDelayedEntry  可选，默认 false。true 时负偏移采用"等到入场点才起播"
                           （.mc 语义），false 时起播钳到 0（转换 json 的既有行为）
+       meters  可选，谱面自带的拍号节点 [{ beat, num, den }]：beat 0 的当初始拍号，
+               其余进「节点拍号」表（用户仍可改 / 删）。不提供则全程用 UI 上的拍号。
 
    parseChart(raw, { kind }) 返回谱面对象：
      {
-       meta, bpmSegments,
+       meta, meters, bpmSegments,
        notes: [{ beatVal, second, colorInfo(组色), actualValueInfo(实际时值), beatLabel, column, chordCount, uid, uids, userSet }],
        totalBeats, chartEndBeat, playEndBeat, totalSeconds, playEndSeconds,
        bgmOffsetSec, musicDelayedEntry, bpmFirst, rawTapCount
@@ -431,7 +433,9 @@ function applyNoteEdits(taps, edits) {
       column: t.column,
       noteType: t.noteType,
       uid: uid,
-      userSet: isMoved
+      userSet: isMoved,
+      chainId: (t.chainId != null ? t.chainId : null),
+      chainInner: !!t.chainInner
     })
   }
   for (const e of list) {
@@ -460,7 +464,7 @@ function parseChart(raw, opts) {
   const kind = opts && opts.kind
   const adapter = chartAdapters.find(a => a.detect(raw, kind))
   if (!adapter) throw new Error("无法识别的谱面格式（没有适配器匹配该数据）")
-  const { time, taps, bgmOffsetSec, musicDelayedEntry } = adapter.extract(raw)
+  const { time, taps, meters, bgmOffsetSec, musicDelayedEntry } = adapter.extract(raw)
 
   const editedTaps = applyNoteEdits(taps, opts && opts.noteEdits)
 
@@ -475,10 +479,11 @@ function parseChart(raw, opts) {
   const showHoldTail = !(opts && opts.showHoldTail == false)
   let filteredTaps = editedTaps
   if (dragMode == "off") filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_DRAG)
+  if (dragMode == "first") filteredTaps = filteredTaps.filter(t => !t.chainInner)
   if (!showHoldTail) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_HOLD_TAIL)
 
-  // 转换拍数并排序，保留 noteType / uid / userSet 供 notes 字段透传
-  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0, uid: t.uid, userSet: !!t.userSet }))
+  // 转换拍数并排序，保留 noteType / uid / userSet / chainId / chainInner 供 notes 字段透传
+  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0, uid: t.uid, userSet: !!t.userSet, chainId: (t.chainId != null ? t.chainId : null), chainInner: !!t.chainInner }))
     .sort((a, b) => a.beatVal - b.beatVal)
   let rawTapCount = sorted.length
 
@@ -493,6 +498,7 @@ function parseChart(raw, opts) {
       prev.userSet = prev.userSet || t.userSet
       if (t.noteType == TYPE_DRAG) prev.hasDrag = true
       if (t.noteType == TYPE_HOLD_TAIL) prev.hasHoldTail = true
+      if (prev.chainId == null && t.chainId != null) prev.chainId = t.chainId
     } else {
       withBeat.push({
         beatVal: t.beatVal,
@@ -503,7 +509,8 @@ function parseChart(raw, opts) {
         uids: [t.uid],
         userSet: !!t.userSet,
         hasDrag: (t.noteType == TYPE_DRAG),
-        hasHoldTail: (t.noteType == TYPE_HOLD_TAIL)
+        hasHoldTail: (t.noteType == TYPE_HOLD_TAIL),
+        chainId: t.chainId
       })
     }
   }
@@ -522,7 +529,10 @@ function parseChart(raw, opts) {
       for (let q = (hideAll ? a : a + 1); q <= b; q++) keep[dragIdx[q]] = false
     }
     const dragIdx = []
-    for (let i = 0; i < withBeat.length; i++) if (withBeat[i].noteType == TYPE_DRAG) dragIdx.push(i)
+    for (let i = 0; i < withBeat.length; i++) {
+      const p = withBeat[i]
+      if (p.noteType == TYPE_DRAG && p.chainId == null) dragIdx.push(i)
+    }
     let segStart = 0
     for (let k = 1; k <= dragIdx.length; k++) {
       let boundary = (k == dragIdx.length)
@@ -635,6 +645,7 @@ function parseChart(raw, opts) {
   return {
     format: adapter.name,
     meta: raw.meta || {},
+    meters: Array.isArray(meters) ? meters : [],
     bpmSegments: segs,
     notes,
     totalBeats,

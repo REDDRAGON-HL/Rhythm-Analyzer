@@ -2001,8 +2001,36 @@
     return Math.max(chartEnd, state.musicDuration || 0)
   }
 
-  /* 节点拍号（全格式）：第 0 拍用信息栏「拍号」，timeSigs 只存 beat > 0 的节点；
-     点击时间轴音符或输入拍数添加 / 更新节点，变拍点开启新小节（中途变拍截断前一小节） */
+  /* 节点拍号：点击时间轴音符或输入拍数添加 / 更新节点，变拍点开启新小节（中途变拍截断前一小节）；
+     适配器可选返回 meters（谱面自带拍号），载入时自动套用 */
+  function applyAdapterMeters(meters) {
+    if (!meters || !meters.length) return null
+    const nodes = []
+    let initial = false
+    for (const m of meters) {
+      if (!m || !(m.num > 0)) continue
+      const den = (m.den > 0) ? m.den : 4
+      if (!(m.beat > 1e-9)) { state.beatsPerBar = m.num; state.beatUnit = den; initial = true; continue }
+      nodes.push({ beat: m.beat, num: m.num, den: den })
+    }
+    nodes.sort(function (a, b) { return a.beat - b.beat })
+    state.timeSigs = nodes
+    syncMeterEditor()
+    return { count: nodes.length, initial: initial }
+  }
+  function resetMetersForChart(chart) {
+    state.timeSigs = []
+    state.selectedMeterBeat = null
+    clearMeterJsonInput()
+    $("meterStatus").textContent = ""
+    const auto = applyAdapterMeters(chart && chart.meters)
+    if (auto) {
+      $("meterStatus").textContent = "已按谱面自带拍号自动标注"
+        + (auto.initial ? "，初始拍号 " + state.beatsPerBar + "/" + state.beatUnit : "")
+        + (auto.count ? "，另有 " + auto.count + " 个变拍节点" : "")
+        + "（可在「节点拍号」里修改或删除）。"
+    }
+  }
   function meterAtBeat(beat) {
     let cur = { num: state.beatsPerBar, den: state.beatUnit }
     const sigs = (state.timeSigs || []).slice().sort(function (a, b) { return a.beat - b.beat })
@@ -2775,11 +2803,8 @@
           alert("未在谱面中找到note！")
           return
         }
-        state.timeSigs = []
-        state.selectedMeterBeat = null
-        clearMeterJsonInput()
-        $("meterStatus").textContent = ""
         state.chart = chart
+        resetMetersForChart(chart)
         renderTimeline()
         reset()
         state.loadedChartName = f.name
@@ -3115,11 +3140,8 @@
       state._parseRaw = raw; state._parseKind = undefined
       resetNoteEdits()
       const chart = parseChart(raw, { showDrag: state.dragMode !== "off", dragMode: state.dragMode, showHoldTail: state.showHoldTail, beatsPerBar: state.beatsPerBar, beatUnit: state.beatUnit, beatOffset: state.beatOffset, alignNotes: state.alignNotes, noteEdits: state.noteEdits })
-      state.timeSigs = []
-      state.selectedMeterBeat = null
-      clearMeterJsonInput()
-      $("meterStatus").textContent = ""
       state.chart = chart
+      resetMetersForChart(chart)
       renderTimeline()
       reset()
       state.loadedChartName = ""
