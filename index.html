@@ -962,7 +962,7 @@
 
   .bpm-line .bpm-tag {
     position: absolute;
-    top: 90px;
+    top: 93px;
     left: 0;
     transform: translateX(-50%);
     font-size: 11px;
@@ -1363,9 +1363,18 @@
     </div>
     <div class="info-card subdiv-card">
       <div>
-        <div class="info-label">偏移</div>
+        <div class="info-label">网格偏移</div>
         <div class="info-value">
           <input type="number" id="beatOffsetInput" step="0.25" value="0" title="网格整体偏移">
+          <span class="subdiv-suffix">拍</span>
+        </div>
+      </div>
+    </div>
+    <div class="info-card subdiv-card">
+      <div>
+        <div class="info-label">整体偏移</div>
+        <div class="info-value">
+          <input type="number" id="contentOffsetInput" step="1" value="0">
           <span class="subdiv-suffix">拍</span>
         </div>
       </div>
@@ -1695,7 +1704,8 @@
     showHoldTail: (function () { try { return localStorage.getItem("showHoldTail") !== "0" } catch (_) { return true } })(),
     beatsPerBar: 4,
     beatUnit: 4,
-    beatOffset: 0,      // 整体偏移（按拍）：只平移网格（小节线/拍线/细分线），音符不动
+    beatOffset: 0,      // 网格偏移
+    contentOffset: 0,   // 整体偏移
     timeSigs: [],       // 拍号表：[{ beat, num, den }]，从 beat 拍起变 num/den；空 = 全程用上面的拍号
     subdivision: 4,
     bpmAnim: true,      // BPM 动画开关
@@ -1726,7 +1736,7 @@
   function startSong(fromSec) {
     if (!songAudio) return
     const t = fromSec + (state.chart ? (state.chart.bgmOffsetSec || 0) : 0)
-    if (t < 0 && state.chart && state.chart.musicDelayedEntry) {
+    if (t < 0 && (fromSec < 0 || (state.chart && state.chart.musicDelayedEntry))) {
       songKicked = false
       return
     }
@@ -1941,6 +1951,16 @@
     $("fontLabel").firstChild.textContent = "导入字体 "
   })
 
+  function leadInBeats() {
+    const v = Number(state.contentOffset) || 0
+    return v > 0 ? v : 0
+  }
+  function leadInSec() {
+    const n = leadInBeats()
+    if (!n) return 0
+    const bpm = (state.chart && state.chart.bpmFirst > 0) ? state.chart.bpmFirst : 120
+    return n * 60 / bpm
+  }
   /* 拍号表：beat 处生效的拍号 { num, den }（timeSigs 为空则用全局拍号） */
   function timeSigAt(beat) {
     let cur = { num: state.beatsPerBar, den: state.beatUnit }
@@ -1957,7 +1977,9 @@
     const sigs = (state.timeSigs || []).slice().sort((a, b) => a.beat - b.beat)
     const off = state.beatOffset || 0
     const out = []
-    let b = 0, guard = 0
+    // 起点前推并对齐小节宽度
+    const w0 = barWidthAt(0)
+    let b = -Math.ceil((leadInBeats() + Math.abs(off) + 1) / w0) * w0, guard = 0
     while (b <= maxBeat + Math.abs(off) + 1e-6 && guard++ < 100000) {
       out.push(b)
       const nb = b + barWidthAt(b)
@@ -2480,9 +2502,9 @@
     $("emptyState").style.display = "none"
 
     const ppb = state.pixelsPerBeat
-    const minBeat = 0
+    const minBeat = -leadInBeats()
     const playEndBeat = Math.max(chart.playEndBeat, secondToBeat(chartEndSec(), chart.bpmSegments))
-    const maxBeat = Math.ceil(playEndBeat) + 8  // 额外8拍留白确保 scrollLeft 有足够空间
+    const maxBeat = Math.ceil(playEndBeat) + 8 + leadInBeats()  // 额外8拍留白确保 scrollLeft 有足够空间
     timeline._maxBeat = maxBeat
     updateTimelineWidth()
 
@@ -2506,20 +2528,25 @@
     }
 
     // 画小节线
+    const gridOff = state.beatOffset || 0
+    const leadBarCount = barBeatsList.filter(v => v - gridOff < -1e-9).length
     for (let i = 0; i < barBeatsList.length; i++) {
       const barBeat = barBeatsList[i]
       if (barBeat < minBeat - 0.01 || barBeat > maxBeat + 0.01) continue
+      const inLead = barBeat - gridOff < -1e-9   // 引导区：照画线，只不写编号
       const x = (barBeat - minBeat) * ppb
-      const isHeavy = (i % 2 == 0)
+      const barNo = i - leadBarCount
+      const isHeavy = (barNo % 2 == 0)
       const line = document.createElement("div")
       line.className = "bar-line" + (isHeavy ? " heavy" : "")
       line.style.left = x + "px"
       timeline.appendChild(line)
+      if (inLead) continue
       // 拍号编号
       const lbl = document.createElement("div")
       lbl.className = "bar-label"
       lbl.style.left = x + "px"
-      lbl.textContent = i
+      lbl.textContent = barNo
       timeline.appendChild(lbl)
     }
 
@@ -2671,7 +2698,7 @@
     const beat = secondToBeat(currentSec, chart.bpmSegments)
     state.curSec = currentSec  // 同步 curSec，保证状态与播放头一致
     $("timeVal").textContent = fmtTime(currentSec) + " / " + fmtTime(chart.totalSeconds)
-    $("beatVal").textContent = beat.toFixed(2)
+    $("beatVal").textContent = Math.max(0, beat).toFixed(2)
     state.playBeat = beat
     const meterNow = meterAtBeat(beat)
     $("currentMeter").textContent = meterNow.num + "/" + meterNow.den
@@ -2769,8 +2796,8 @@
     state.playing = false
     stopSong()
     cancelAnimationFrame(state.rafId)
-    state.curSec = 0
-    state.playFromSec = 0
+    state.curSec = -leadInSec()
+    state.playFromSec = -leadInSec()
     state.wallStartPerf = 0
     // 恢复所有note可见性
     const timeline = $("timeline")
@@ -2778,13 +2805,13 @@
       timeline._noteEls.forEach(el => el.classList.remove("passed"))
       timeline._hiddenIdx = 0
     }
-    updatePlayhead(0, true)
+    updatePlayhead(-leadInSec(), true)
     $("playBtn").disabled = !state.chart ? true : false
     $("pauseBtn").disabled = true
   }
 
 
-    function loadChartFile(f) {
+  function loadChartFile(f) {
     if (!f) return
     $("fileLabel").firstChild.textContent = f.name + " "
     const reader = new FileReader()
@@ -3240,6 +3267,22 @@
   }
   $("beatOffsetInput").addEventListener("blur", applyBeatOffset)
   $("beatOffsetInput").addEventListener("keydown", function (e) {
+    if (e.key == "Enter") { e.preventDefault(); this.blur() }
+  })
+
+  $("contentOffsetInput").value = state.contentOffset
+  function applyContentOffset() {
+    const input = $("contentOffsetInput")
+    let val = parseFloat(input.value)
+    if (!isFinite(val)) val = 0
+    if (val < 0) val = 0
+    input.value = val
+    if (val == state.contentOffset) return
+    state.contentOffset = val
+    if (state.chart) { renderTimeline(); reset() }
+  }
+  $("contentOffsetInput").addEventListener("blur", applyContentOffset)
+  $("contentOffsetInput").addEventListener("keydown", function (e) {
     if (e.key == "Enter") { e.preventDefault(); this.blur() }
   })
 

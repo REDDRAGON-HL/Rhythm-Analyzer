@@ -210,7 +210,8 @@ async function decodeExportAudio(url) {
 async function mixExportAudio(outputDur) {
   const chart = state.chart
   const speed = state.speed
-  const ctx = new OfflineAudioContext(2, Math.ceil((outputDur + 0.3) * EXPORT_SR), EXPORT_SR)
+  const leadOut = ((typeof leadInSec === "function") ? leadInSec() : 0) / speed
+  const ctx = new OfflineAudioContext(2, Math.ceil((outputDur + leadOut + 0.3) * EXPORT_SR), EXPORT_SR)
 
   let haveAny = false
   if (songAudio) {
@@ -224,8 +225,8 @@ async function mixExportAudio(outputDur) {
       const gain = ctx.createGain()
       gain.gain.value = songVolume
       src.connect(gain).connect(ctx.destination)
-      if (off >= 0) src.start(0, Math.min(off, songBuf.duration))
-      else src.start(-off / speed, 0)
+      if (off >= 0) src.start(leadOut, Math.min(off, songBuf.duration))
+      else src.start(leadOut - off / speed, 0)
       haveAny = true
     } catch (err) { console.warn("歌曲解码失败，导出不含歌曲:", err); }
   }
@@ -233,8 +234,8 @@ async function mixExportAudio(outputDur) {
     try {
       const hitBuf = await decodeExportAudio(hitPool[0].src)
       for (const nt of chart.notes) {
-        const t = nt.second / speed
-        if (t >= outputDur) break
+        const t = nt.second / speed + leadOut
+        if (t >= outputDur + leadOut) break
         // 多押按chordCount调度多个源
         for (let k = 0; k < (nt.chordCount || 1); k++) {
           const src = ctx.createBufferSource()
@@ -363,11 +364,12 @@ function audioBufferToWav(buf) {
 // 序列导出
 async function exportPngSequence(chart, outputDur) {
   const speed = state.speed
-  const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
+  const leadOut = ((typeof leadInSec === "function") ? leadInSec() : 0) / speed
+  const totalFrames = Math.max(1, Math.ceil((outputDur + leadOut) * EXPORT_FPS))
   const files = []
   for (let k = 0; k < totalFrames; k++) {
     if (exportCancelFlag) return
-    drawExportFrame((k / EXPORT_FPS) * speed)
+    drawExportFrame((k / EXPORT_FPS) * speed - leadOut * speed)
     const blob = await new Promise(r => exportCanvas.toBlob(r, "image/png"))
     files.push({ name: "frame_" + String(k).padStart(5, "0") + ".png", data: new Uint8Array(await blob.arrayBuffer()) })
     if (k % 10 == 0) {
@@ -519,7 +521,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       // 每帧画完立即释放主线程该帧
       for (let idx = 0; idx < totalFrames; idx++) {
         if (exportCancelFlag) return
-        drawExportFrame((idx / EXPORT_FPS) * speed)
+        drawExportFrame((idx / EXPORT_FPS) * speed - ((typeof leadInSec === "function") ? leadInSec() : 0))
         const blob = await new Promise(r => exportCanvas.toBlob(r, "image/png"))
         const u8 = new Uint8Array(await blob.arrayBuffer())
         const fname = "frame_" + String(idx).padStart(5, "0") + ".png"
@@ -901,14 +903,19 @@ function drawExportFrame(sec) {
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
   const bars = (typeof barLineBeats === "function") ? barLineBeats(bMax) : [0]
+  const gridOff = state.beatOffset || 0
+  const leadBarCount = bars.filter(v => v - gridOff < -1e-9).length
   for (let i = 0; i < bars.length; i++) {
     const barBeat = bars[i]
     if (barBeat < bMin - 0.01) continue
+    const inLead = barBeat - gridOff < -1e-9
     const x = Math.round(xOf(barBeat))
-    ctx.fillStyle = i % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+    const barNo = i - leadBarCount
+    ctx.fillStyle = barNo % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
     ctx.fillRect(x, y0 + 32, 1, 76)
+    if (inLead) continue
     ctx.fillStyle = "rgba(255,255,255,0.75)"
-    ctx.fillText(String(i), x, y0 + 14)
+    ctx.fillText(String(barNo), x, y0 + 14)
   }
   chart.bpmSegments.forEach(function (s, i) {
     if (i == 0) return
@@ -923,9 +930,9 @@ function drawExportFrame(sec) {
     ctx.font = "800 11px " + EXPORT_FONT()
     const tw = ctx.measureText(tag).width + 12
     ctx.fillStyle = "rgba(0,0,0,0.6)"
-    ctx.fillRect(x - tw / 2, y0 + 122, tw, 17)
+    ctx.fillRect(x - tw / 2, y0 + 125, tw, 17)
     ctx.fillStyle = "#4de0ff"
-    ctx.fillText(tag, x, y0 + 131)
+    ctx.fillText(tag, x, y0 + 134)
   })
 
   // note
