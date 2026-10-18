@@ -124,7 +124,7 @@
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   /* 轴流动速度 / 字号 / note 缩放 行 */
@@ -1457,6 +1457,10 @@
         <input type="range" id="songVol" min="0" max="100" value="100" title="曲子音量">
         <span class="vol-val" id="songVolVal">100</span>
       </span>
+      <span class="audio-ctl">打击音量
+        <input type="range" id="hitVol" min="0" max="100" step="1" value="100" title="打击音效音量">
+        <span class="vol-val" id="hitVolVal">100</span>
+      </span>
       <button id="demoBtn">载入示例</button>
       <label class="file-label" id="fontLabel">导入字体
         <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/*">
@@ -1659,6 +1663,13 @@
         </select>
       </div>
       <div class="hint" id="fmtHint"></div>
+      <div class="form-row">
+        <span>CRF（视频质量）</span>
+        <select id="optCrf" aria-describedby="crfHint">
+          <option value="auto" selected>自动（快速导出）</option>
+        </select>
+      </div>
+      <div class="hint" id="crfHint"></div>
       <div class="btn-row">
         <button id="modalCancelBtn">取消</button>
         <button id="modalGoBtn">开始导出</button>
@@ -1727,6 +1738,7 @@
 
   let songAudio = null  // 载入的曲子
   let songVolume = 1    // 曲子音量
+  let hitVolume = 1     // 打击音量，预览与导出共用
   let hitPool = []      // 打击音节点池，8 个轮询复用，密集音符也能连续触发
   let hitPoolIdx = 0
 
@@ -1764,6 +1776,14 @@
     $("songVolVal").textContent = e.target.value
   })
 
+  // 打击音量：预览用已载入的音频节点，导出时由 chart-export.js 读取 hitVolume
+  $("hitVol").addEventListener("input", function (e) {
+    if (state.exporting) return
+    hitVolume = Number(e.target.value) / 100
+    $("hitVolVal").textContent = e.target.value
+    for (const audio of hitPool) audio.volume = hitVolume
+  })
+
   function loadSongFile(f) {
     if (!f) return
     stopSong()
@@ -1796,6 +1816,7 @@
     for (let i = 0; i < 8; i++) {
       const a = new Audio(url)
       a.preload = "auto"
+      a.volume = hitVolume
       hitPool.push(a)
     }
     hitPoolIdx = 0
@@ -1803,6 +1824,7 @@
   }
 
   $("hitInput").addEventListener("change", function (e) {
+    if (state.exporting) return
     const f = e.target.files[0]
     e.target.value = ""
     loadHitFile(f)
@@ -3367,6 +3389,12 @@
   })
 
   // 导出设置模态框：点导出弹出；选项联动；开始后走原导出进度流程
+  for (let crf = 0; crf <= 51; crf++) {
+    const option = document.createElement("option")
+    option.value = String(crf)
+    option.textContent = String(crf) + ({ 0: "（最高质量）", 18: "（高质量）", 23: "（均衡）", 28: "（较小体积）", 51: "（最低质量）" }[crf] || "")
+    $("optCrf").appendChild(option)
+  }
   function syncExportModal() {
     const bg = $("optBg").value
     const fmt = $("optFmt").value
@@ -3405,6 +3433,18 @@
     $("fmtHint").textContent = fmtHint
     if (fmtHint.includes("不支持")) $("fmtHint").style.color = "#fca5a5"
     else $("fmtHint").style.color = ""
+
+    // CRF：仅 H.264 直接编码路径可选
+    const crfAllowed = typeof supportsExportCrf === "function" && supportsExportCrf(bg, fmt)
+    $("optCrf").disabled = !crfAllowed
+    $("crfHint").textContent = crfAllowed
+      ? ($("optCrf").value === "auto" ? "自动使用快速导出；选择 CRF 可控制质量，数值越小画质越高、文件通常越大。" : "CRF " + $("optCrf").value + "：使用质量编码，耗时与内存占用会增加。")
+      : "CRF 仅用于 H.264 视频；PNG、透明 MOV/AVI 和 MPEG4 AVI 不使用 CRF。"
+    if (crfAllowed && $("optCrf").value !== "auto") {
+      fmtHint = "直接按 CRF " + $("optCrf").value + " 导出 " + (fmt === "source" ? "MP4" : fmt.toUpperCase()) + (srcHasAlpha ? "，透明区域填充黑底" : "")
+      $("fmtHint").textContent = fmtHint
+      $("fmtHint").style.color = ""
+    }
   }
 
   // 输出宽度
@@ -3422,6 +3462,7 @@
 
   $("optBg").addEventListener("change", syncExportModal)
   $("optFmt").addEventListener("change", syncExportModal)
+  $("optCrf").addEventListener("change", syncExportModal)
   $("optOpacity").addEventListener("input", function () {
     $("optOpacityVal").textContent = this.value + "%"
   })
@@ -3458,7 +3499,8 @@
       bgAlpha: parseInt($("optOpacity").value, 10) || 0,
       fps: parseInt($("optFps").value, 10),
       sr: parseInt($("optSr").value, 10),
-      fmt: $("optFmt").value
+      fmt: $("optFmt").value,
+      crf: $("optCrf").disabled ? "auto" : $("optCrf").value
     }).catch(function (err) {
       showExportStartupError("无法开始导出：" + (err && err.message ? err.message : err))
     })
