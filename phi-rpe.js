@@ -20,13 +20,14 @@ registerChartAdapter(
         if (!n || n.isFake) continue
         const startBeat = beatToVal(n.startTime)
         const ntype = typeof n.type == "number" ? n.type : 1
-        if (ntype === 3) {
+        // RPE note.type: 1 Tap  2 Hold  3 Flick  4 Drag
+        if (ntype === 2) {
           taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_TAP })
           const endBeat = beatToVal(n.endTime)
           if (endBeat > startBeat) {
             taps.push({ beatVal: endBeat, column: n.positionX, noteType: TYPE_HOLD_TAIL })
           }
-        } else if (ntype === 2) {
+        } else if (ntype === 4) {
           taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_DRAG })
         } else {
           taps.push({ beatVal: startBeat, column: n.positionX, noteType: TYPE_TAP })
