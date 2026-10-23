@@ -23,6 +23,17 @@ let EXPORT_SR = 48000     // 音频采样率
 // 背景模式
 let exportBg = "black"
 let exportFmt = "source"  // "source" / "mp4" / "mkv" / "mov" / "avi"
+let exportCrf = null      // null 为快速导出；0..51 使用 libx264 CRF 直接编码原始帧
+function supportsExportCrf(bg, fmt) {
+  return (bg === "black" && ["source", "mp4", "mkv", "mov"].includes(fmt)) ||
+    (bg === "transparent" && ["mp4", "mkv"].includes(fmt))
+}
+function parseExportCrf(value) {
+  if (value === undefined || value === null || value === "auto") return null
+  const crf = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN
+  if (!Number.isInteger(crf) || crf < 0 || crf > 51) throw new Error("CRF 必须是 0 到 51 的整数")
+  return crf
+}
 let exportPanelT = false  // BPM 面板透明
 let exportBgAlpha = 0  // 不透明度
 // BPM 动画状态
@@ -233,6 +244,9 @@ async function mixExportAudio(outputDur) {
   if (hitPool.length) {
     try {
       const hitBuf = await decodeExportAudio(hitPool[0].src)
+      const hitGain = ctx.createGain()
+      hitGain.gain.value = hitVolume
+      hitGain.connect(ctx.destination)
       for (const nt of chart.notes) {
         const t = nt.second / speed + leadOut
         if (t >= outputDur + leadOut) break
@@ -240,7 +254,7 @@ async function mixExportAudio(outputDur) {
         for (let k = 0; k < (nt.chordCount || 1); k++) {
           const src = ctx.createBufferSource()
           src.buffer = hitBuf
-          src.connect(ctx.destination)
+          src.connect(hitGain)
           src.start(t)
         }
       }
@@ -404,11 +418,13 @@ async function exportPngSequence(chart, outputDur) {
 
 /* =========================================================
    透明mov导出（png无损alpha + aac，ffmpeg.wasm单实例编码）
+   也用于 CRF 导出：直接以 libx264 编码画布帧，跳过中间有损视频
 
    单ffmpeg实例逐帧渲染writeFile全部帧，追加 audio.wav
     一次 exec：-f image2 序列→png codec (-pred mixed, pix_fmt rgba) + aac mux→直接出out.mov
     -vf fps:round=near:start_time=0 + settb=AVTB + setpts=N/(FPS*TB) 写死每帧PTS，消除concat累积误差
     总帧数/视频时长基准优先用mixed.duration
+    CRF 视频按播放时长输出，避免音轨余量延长视频
     不要用playEndSeconds/speed！！！！！！！会有累计误差越来越偏！！！！！！！！！！！！！！！1
 
    ========================================================= */
@@ -435,16 +451,22 @@ async function fetchEngineBlobURL(u, type, progressLabel) {
     "\n已重试 " + ENGINE_FETCH_ATTEMPTS + " 次")
 }
 
-async function exportWebmTransparent(chart, outputDur, mixed) {
+async function exportFfmpegVideo(chart, outputDur, mixed) {
+  const useCrf = exportCrf !== null
+  const container = useCrf ? (exportFmt === "source" ? "mp4" : exportFmt) : "mov"
+  const outName = "out." + container
+  const videoLabel = useCrf ? container.toUpperCase() + "（CRF " + exportCrf + "）" : "透明 MOV"
   const speed = state.speed
-  const durSec = mixed ? mixed.duration : outputDur
+  // 前导拍（整体偏移）也占视频时长：CRF 按播放时长输出，但要带上这段前导，否则会被 -t 截掉
+  const leadOut = ((typeof leadInSec === "function") ? leadInSec() : 0) / speed
+  const durSec = useCrf ? outputDur + leadOut : mixed ? mixed.duration : outputDur
   const totalFrames = Math.max(1, Math.ceil(durSec * EXPORT_FPS))
 
   const { FFmpeg } = await import("./lib/ffmpeg/index.js")
 
-  const blobURL = (u, type) => fetchEngineBlobURL(u, type, "加载透明 MOV 导出引擎")
+  const blobURL = (u, type) => fetchEngineBlobURL(u, type, "加载 " + videoLabel + " 导出引擎")
 
-  setExportProgress(5, "加载透明 MOV 导出引擎…")
+  setExportProgress(5, "加载 " + videoLabel + " 导出引擎…")
   await new Promise(r => setTimeout(r, 0))
 
   // 核心资源url
@@ -529,7 +551,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
 
         if (idx % 5 == 0) {
           const prog = Math.min(75, Math.round((idx + 1) / totalFrames * 75))
-          setExportProgress(5 + (idx + 1) / totalFrames * 70, "渲染 MOV 帧 " + (idx + 1) + "/" + totalFrames)
+          setExportProgress(5 + (idx + 1) / totalFrames * 70, "渲染 " + videoLabel + " 帧 " + (idx + 1) + "/" + totalFrames)
           await new Promise(r => setTimeout(r, 0))
         }
       }
@@ -548,7 +570,7 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       if (exportCancelFlag) return
 
       // 一次 exec
-      setExportProgress(null, "编码透明 MOV…")
+      setExportProgress(null, "编码 " + videoLabel + "…")
       await new Promise(r => setTimeout(r, 0))
 
       const onePassArgs = []
@@ -570,22 +592,25 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       // 视频filter，fps对齐
       onePassArgs.push("-vf", "fps=fps=" + EXPORT_FPS + ":round=near:start_time=0,settb=AVTB,setpts=N/(" + EXPORT_FPS + "*TB)")
       onePassArgs.push("-frames:v", String(totalFrames))
-      onePassArgs.push("-c:v", "png")
-      onePassArgs.push("-pred", "mixed")
-      onePassArgs.push("-pix_fmt", "rgba")
+      if (useCrf) {
+        onePassArgs.push("-c:v", "libx264", "-preset", "fast", "-crf", String(exportCrf), "-pix_fmt", "yuv420p")
+        if (container === "mp4" || container === "mov") onePassArgs.push("-movflags", "+faststart")
+      } else {
+        onePassArgs.push("-c:v", "png", "-pred", "mixed", "-pix_fmt", "rgba")
+      }
       if (hasAudio) {
         // 音频filter，按采样号写死pts抵消acc pre-roll
         onePassArgs.push("-af", "asetpts=N/SR/TB")
         onePassArgs.push("-c:a", "aac")
         onePassArgs.push("-b:a", "192k")
-        onePassArgs.push("-ar", "48000")
+        onePassArgs.push("-ar", String(EXPORT_SR))
         onePassArgs.push("-ac", "2")
       }
       onePassArgs.push("-t", String(durSec))
-      onePassArgs.push("-f", "mov")
-      onePassArgs.push("out.mov")
+      onePassArgs.push("-f", container === "mkv" ? "matroska" : container)
+      onePassArgs.push(outName)
 
-      await runExec(inst, onePassArgs, "MOV 一次编码")
+      await runExec(inst, onePassArgs, videoLabel + " 一次编码")
       if (exportCancelFlag) return
 
       // 清理帧文件
@@ -595,10 +620,10 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
       }
       if (hasAudio) await deleteFile(inst, "audio.wav")
 
-      setExportProgress(96, "读取 MOV 文件…")
+      setExportProgress(96, "读取 " + videoLabel + " 文件…")
       await new Promise(r => setTimeout(r, 0))
-      const r = await inst.readFile("out.mov")
-      if (!(r && r.byteLength > 0)) throw new Error("编码产物为空（MOV PNG 一次编码失败）")
+      const r = await inst.readFile(outName)
+      if (!(r && r.byteLength > 0)) throw new Error("编码产物为空（" + videoLabel + " 一次编码失败）")
       finalU8 = new Uint8Array(r)
     } catch (rawE) {
       throw toErr(rawE)
@@ -612,12 +637,12 @@ async function exportWebmTransparent(chart, outputDur, mixed) {
     setExportProgress(98, "准备下载文件…")
     await new Promise(r => setTimeout(r, 0))
     if (!finalU8 || finalU8.length == 0) throw new Error("最终产物为空")
-    let blob = new Blob([finalU8], { type: "video/quicktime" })
+    let blob = new Blob([finalU8], { type: container === "mp4" ? "video/mp4" : container === "mkv" ? "video/x-matroska" : "video/quicktime" })
     finalU8 = null
     // 转码（保持源格式时此函数立即原样返回）
-    blob = await postProcessConvert(blob, exportFmt, true)
+    if (!useCrf) blob = await postProcessConvert(blob, exportFmt, true)
     if (exportCancelFlag) return
-    const outExt =
+    const outExt = useCrf ? container :
       exportFmt == "mp4" ? "mp4" :
         exportFmt == "mov" ? "mov" :
           exportFmt == "mkv" ? "mkv" :
@@ -718,7 +743,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
         args = [
           "-i", srcName,
           "-c:v", "libx264", "-pix_fmt", "yuv420p",
-          "-preset", "fast", "-crf", "23",
+          "-preset", "fast", "-crf", String(exportCrf === null ? 23 : exportCrf),
           "-c:a", "aac", "-b:a", "192k",
           "-movflags", "+faststart",
           "-avoid_negative_ts", "make_zero",
@@ -731,7 +756,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
         args = [
           "-i", srcName,
           "-c:v", "libx264", "-pix_fmt", "yuv420p",
-          "-preset", "fast", "-crf", "23",
+          "-preset", "fast", "-crf", String(exportCrf === null ? 23 : exportCrf),
           "-c:a", "aac", "-b:a", "192k",
           "-avoid_negative_ts", "make_zero",
           "-shortest",
@@ -755,7 +780,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
           args = [
             "-i", srcName,
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-preset", "fast", "-crf", "23",
+            "-preset", "fast", "-crf", String(exportCrf === null ? 23 : exportCrf),
             "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart",
             "-avoid_negative_ts", "make_zero",
@@ -857,7 +882,7 @@ function drawExportFrame(sec) {
   const ns = state.noteScale || 1   // note 缩放
 
   ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, -EXPORT_CROP_L * EXPORT_SCALE, -EXPORT_CROP_T * EXPORT_SCALE)
-  if (exportBg !== "black") {
+  if (exportBg !== "black" && exportCrf === null) {
     ctx.clearRect(EXPORT_CROP_L, EXPORT_CROP_T, W, H)
     if (exportBgAlpha > 0) {
       ctx.globalAlpha = exportBgAlpha
@@ -1106,6 +1131,7 @@ async function startExport(cfg) {
   const c = cfg || {}
   exportBg = c.bg || "black"
   exportFmt = c.fmt || "source"
+  exportCrf = supportsExportCrf(exportBg, exportFmt) ? parseExportCrf(c.crf) : null
   exportPanelT = !!c.panelTransparent && exportBg !== "black"
   // 背景不透明度
   exportBgAlpha = (exportBg === "black") ? 0
@@ -1114,7 +1140,7 @@ async function startExport(cfg) {
   EXPORT_SR = (exportBg == "transparent" || exportBg == "pngseq") ? 48000 : (c.sr || 48000)
   const isWebm = exportBg == "transparent"
 
-  if (exportBg == "black" && (!window.VideoEncoder || !window.AudioEncoder)) {
+  if (exportBg == "black" && exportCrf === null && (!window.VideoEncoder || !window.AudioEncoder)) {
     finishExportProgress("failed", "当前浏览器不支持 MP4 导出（缺少 WebCodecs）。请选择透明 MOV / PNG 序列，或使用支持 WebCodecs 的浏览器。")
     return
   }
@@ -1145,13 +1171,13 @@ async function startExport(cfg) {
     try { await document.fonts.ready } catch (e) { }
     if (exportCancelFlag) return
 
-    // 透明mov，ffmpeg.wasm单实例一次性编码
-    if (exportBg == "transparent") {
+    // 透明 PNG 或 CRF：直接从画布帧编码，不经过有损视频中间文件。
+    if (exportBg == "transparent" || exportCrf !== null) {
       setupExportCanvas()
-      setExportProgress(2, "合成 MOV 音轨…")
+      setExportProgress(2, "合成视频音轨…")
       const mixed = await mixExportAudio(outputDur)
       if (exportCancelFlag) return
-      await exportWebmTransparent(chart, outputDur, mixed)
+      await exportFfmpegVideo(chart, outputDur, mixed)
       return // finally恢复界面
     }
 
