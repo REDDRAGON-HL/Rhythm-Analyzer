@@ -24,6 +24,7 @@ let EXPORT_SR = 48000     // 音频采样率
 let exportBg = "black"
 let exportFmt = "source"  // "source" / "mp4" / "mkv" / "mov" / "avi"
 let exportCrf = null      // null 为快速导出；0..51 使用 libx264 CRF 直接编码原始帧
+let exportBitrate = 8000000 // 快速导出码率
 function supportsExportCrf(bg, fmt) {
   return (bg === "black" && ["source", "mp4", "mkv", "mov"].includes(fmt)) ||
     (bg === "transparent" && ["mp4", "mkv"].includes(fmt))
@@ -1133,6 +1134,7 @@ async function startExport(cfg) {
   exportBg = c.bg || "black"
   exportFmt = c.fmt || "source"
   exportCrf = supportsExportCrf(exportBg, exportFmt) ? parseExportCrf(c.crf) : null
+  exportBitrate = Math.max(1000000, Math.min(100000000, parseInt(c.bitrate, 10) || 8000000))
   exportPanelT = !!c.panelTransparent && exportBg !== "black"
   // 背景不透明度
   exportBgAlpha = (exportBg === "black") ? 0
@@ -1211,6 +1213,7 @@ async function startExport(cfg) {
       width: exportCanvas.width,
       height: exportCanvas.height,
       fps: EXPORT_FPS,
+      bitrate: exportBitrate,
       audio: { sampleRate: EXPORT_SR, channels: 2 }
     })
     await readyP

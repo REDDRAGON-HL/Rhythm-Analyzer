@@ -49,7 +49,7 @@ async function handleMessage(msg) {
         codec: "vp09.00.10.08",
         width: msg.width,
         height: msg.height,
-        bitrate: 8000000,
+        bitrate: msg.bitrate || 8000000,
         framerate: msg.fps,
         alpha: "keep",
         latencyMode: "realtime"
@@ -63,7 +63,7 @@ async function handleMessage(msg) {
           codec,
           width: msg.width,
           height: msg.height,
-          bitrate: 8000000,
+          bitrate: msg.bitrate || 8000000,
           framerate: msg.fps,
           latencyMode: "realtime"
         }

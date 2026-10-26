@@ -1683,6 +1683,15 @@
         </select>
       </div>
       <div class="hint" id="crfHint"></div>
+      <div class="form-row">
+        <span>快速导出码率</span>
+        <select id="optBitrate">
+          <option value="8000000" selected>8 Mbps（默认）</option>
+          <option value="20000000">20 Mbps</option>
+          <option value="40000000">40 Mbps</option>
+        </select>
+      </div>
+      <div class="hint" id="bitrateHint"></div>
       <div class="btn-row">
         <button id="modalCancelBtn">取消</button>
         <button id="modalGoBtn">开始导出</button>
@@ -3564,6 +3573,11 @@
       $("fmtHint").textContent = fmtHint
       $("fmtHint").style.color = ""
     }
+    const fastPath = bg === "black" && $("optCrf").value === "auto"
+    $("optBitrate").disabled = !fastPath
+    $("bitrateHint").textContent = fastPath
+      ? "只作用于黑底快速导出（WebCodecs）"
+      : "仅黑底 + CRF「自动（快速导出）」时可用"
   }
 
   // 输出宽度
@@ -3619,7 +3633,8 @@
       fps: parseInt($("optFps").value, 10),
       sr: parseInt($("optSr").value, 10),
       fmt: $("optFmt").value,
-      crf: $("optCrf").disabled ? "auto" : $("optCrf").value
+      crf: $("optCrf").disabled ? "auto" : $("optCrf").value,
+      bitrate: parseInt($("optBitrate").value, 10) || 8000000
     }).catch(function (err) {
       showExportStartupError("无法开始导出：" + (err && err.message ? err.message : err))
     })
