@@ -225,9 +225,9 @@ async function mixExportAudio(outputDur) {
   const ctx = new OfflineAudioContext(2, Math.ceil((outputDur + leadOut + 0.3) * EXPORT_SR), EXPORT_SR)
 
   let haveAny = false
-  if (songAudio) {
+  if (songFileURL) {
     try {
-      const songBuf = await decodeExportAudio(songAudio.src)
+      const songBuf = await decodeExportAudio(songFileURL)
       let off = chart.bgmOffsetSec || 0
       if (off < 0 && !chart.musicDelayedEntry) off = 0
       const src = ctx.createBufferSource()
@@ -639,8 +639,8 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
     if (!finalU8 || finalU8.length == 0) throw new Error("最终产物为空")
     let blob = new Blob([finalU8], { type: container === "mp4" ? "video/mp4" : container === "mkv" ? "video/x-matroska" : "video/quicktime" })
     finalU8 = null
-    // 转码（保持源格式时此函数立即原样返回）
-    if (!useCrf) blob = await postProcessConvert(blob, exportFmt, true)
+    // 转码（CRF 在函数内部提前返回）
+    blob = await postProcessConvert(blob, exportFmt, true)
     if (exportCancelFlag) return
     const outExt = useCrf ? container :
       exportFmt == "mp4" ? "mp4" :
@@ -663,6 +663,7 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
 
 // 格式转换
 async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
+  if (exportCrf !== null) return srcBlob
   if (targetFmt == "source"
     || !srcBlob || !srcBlob.type
     || !srcBlob.type.startsWith("video/")) {

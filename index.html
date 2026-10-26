@@ -751,6 +751,10 @@
     color: #34d399;
   }
 
+  #audioOffsetInput {
+    width: 56px;
+  }
+
   .chart-area {
     position: relative;
     padding: 24px 0 0;
@@ -1379,6 +1383,15 @@
         </div>
       </div>
     </div>
+    <div class="info-card subdiv-card">
+      <div>
+        <div class="info-label">预览偏移</div>
+        <div class="info-value">
+          <input type="number" id="audioOffsetInput" step="5" value="" title="预览偏移。仅影响预览，不影响导出。">
+          <span class="subdiv-suffix">ms</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="chart-area">
@@ -1688,6 +1701,7 @@
 <script src="infalsus.js"></script>
 <script src="rotaeno.js"></script>
 <script src="chart-export.js"></script>
+<script src="lib/howler.min.js"></script>
 <script>
   let state = {
     chart: null,
@@ -1736,7 +1750,15 @@
 
   const $ = id => document.getElementById(id)  // 唉怎么想到的这个有点强
 
-  let songAudio = null  // 载入的曲子
+        let songFileURL = ""  // 曲子的 Blob URL（Howler 播放与导出解码共用）
+        let songHowl = null   // Howler 实例（Web Audio）
+        let songExt = ""      // 扩展名（Howler 对 Blob URL 需要显式 format）
+        let audioDelaySec = 0 // 本次起播的画面时间平移（实时秒）：正 = 画面晚，负 = 画面早
+        let audioOffsetMs = null // 音画偏移（毫秒）：正 = 画面晚，负 = 画面早；null = 自动
+        try {
+          const savedOffset = parseFloat(localStorage.getItem("audioOffsetMs"))
+          if (isFinite(savedOffset)) audioOffsetMs = Math.max(-500, Math.min(500, savedOffset))
+        } catch (err) { /* ignore */ }
   let songVolume = 1    // 曲子音量
   let hitVolume = 1     // 打击音量，预览与导出共用
   let hitPool = []      // 打击音节点池，8 个轮询复用，密集音符也能连续触发
@@ -1744,22 +1766,102 @@
 
   let songKicked = true
 
+          // 偏移
+          if ($("audioOffsetInput")) {
+            $("audioOffsetInput").value = audioOffsetMs === null ? "" : String(audioOffsetMs)
+            $("audioOffsetInput").placeholder = "自动"
+            $("audioOffsetInput").addEventListener("input", function () {
+              if (this.value.trim() === "") { audioOffsetMs = null; return }
+              const v = parseFloat(this.value)
+              if (!isFinite(v)) return
+              audioOffsetMs = Math.max(-500, Math.min(500, v))
+              console.log("[audioEngine] offset =", audioOffsetMs, "ms（下次起播生效）")
+            })
+            $("audioOffsetInput").addEventListener("change", function () {
+              if (this.value.trim() === "") {
+                audioOffsetMs = null
+                this.value = ""
+                try { localStorage.removeItem("audioOffsetMs") } catch (err) { /* ignore */ }
+                console.log("[audioEngine] offset = 自动")
+                return
+              }
+              let v = parseFloat(this.value)
+              if (!isFinite(v)) v = 0
+              v = Math.max(-500, Math.min(500, v))
+              audioOffsetMs = v
+              this.value = String(v)
+              try { localStorage.setItem("audioOffsetMs", String(v)) } catch (err) { /* ignore */ }
+              console.log("[audioEngine] offset saved =", v, "ms")
+            })
+          }
+
+          // 懒创建 Howl
+          function ensureHowl() {
+            if (!songFileURL || typeof Howl !== "function") return null
+            if (songHowl && songHowl._src === songFileURL) return songHowl
+            if (songHowl) { try { songHowl.unload() } catch (err) { /* ignore */ } }
+            songHowl = new Howl({
+              src: [songFileURL],
+              format: songExt ? [songExt] : undefined,
+              html5: false,
+              preload: true,
+              volume: songVolume,
+              rate: state.speed
+            })
+            songHowl._src = songFileURL
+            const inst = songHowl
+            inst.once("load", function () {
+              const dur = songHowl ? songHowl.duration() : 0
+              if (dur > 0) {
+                state.musicDuration = dur
+                if (state.chart) setTimeout(function () { if (state.chart) renderTimeline() }, 0)
+              }
+            })
+            inst.once("loaderror", function () {
+              if (songHowl !== inst) return
+              console.warn("[audioEngine] Howler 解码失败")
+              try { songHowl.unload() } catch (err) { /* ignore */ }
+              songHowl = null
+              songKicked = true
+            })
+            inst.once("playerror", function (id, err) {
+              console.warn("[audioEngine] Howler 播放失败", id, err)
+            })
+            return songHowl
+          }
+
   // 曲子从谱面时间 fromSec 处起播offset
   function startSong(fromSec) {
-    if (!songAudio) return
+    const h = ensureHowl()
+    if (!h) return
+    if (h.state() !== "loaded") {
+      songKicked = false
+      return
+    }
     const t = fromSec + (state.chart ? (state.chart.bgmOffsetSec || 0) : 0)
     if (t < 0 && (fromSec < 0 || (state.chart && state.chart.musicDelayedEntry))) {
       songKicked = false
       return
     }
     songKicked = true
-    try { songAudio.currentTime = Math.max(0, t); } catch (err) { }
-    songAudio.playbackRate = state.speed
-    songAudio.play().catch(() => { })
+    if (window.Howler && Howler.ctx && Howler.ctx.state === "suspended") {
+      Howler.ctx.resume().catch(function () { })
+    }
+    h.rate(state.speed)
+    h.volume(songVolume)
+    if (h.playing()) h.stop()
+    const hasSound = h._sounds && h._sounds.length
+    if (hasSound) {
+      h.seek(Math.max(0, t))
+      h.play()
+    } else {
+      h.play()
+      h.seek(Math.max(0, t))
+    }
   }
 
   function stopSong() {
-    if (songAudio) songAudio.pause()
+    if (songHowl) songHowl.pause()
   }
 
   function playHit() {
@@ -1772,7 +1874,7 @@
   // 音量滑条
   $("songVol").addEventListener("input", function (e) {
     songVolume = parseFloat(e.target.value) / 100
-    if (songAudio) songAudio.volume = songVolume
+    if (songHowl) songHowl.volume(songVolume)
     $("songVolVal").textContent = e.target.value
   })
 
@@ -1787,20 +1889,20 @@
   function loadSongFile(f) {
     if (!f) return
     stopSong()
-    if (songAudio) URL.revokeObjectURL(songAudio.src)
-    songAudio = new Audio(URL.createObjectURL(f))
-    songAudio.preload = "auto"
-    songAudio.volume = songVolume
+    if (songHowl) { try { songHowl.unload() } catch (err) { /* ignore */ } songHowl = null }
+    if (songFileURL) URL.revokeObjectURL(songFileURL)
+    const m = /\.([a-z0-9]+)$/i.exec(f.name || "")
+    songExt = m ? m[1].toLowerCase() : ""
+    if (songExt === "oga") songExt = "ogg"
+    if (songExt === "m4b") songExt = "m4a"
+    songFileURL = URL.createObjectURL(f)
     // 谱面比音乐短时，时间轴与播放终点自动加长空白拍补到音乐结束
     state.musicDuration = 0
-    songAudio.addEventListener("loadedmetadata", function () {
-      state.musicDuration = isFinite(songAudio.duration) ? songAudio.duration : 0
-      if (state.chart) renderTimeline()
-    })
     $("songLabel").firstChild.textContent = f.name + " "
     state.loadedSongName = f.name
     addToLibrary("audio", f)
     renderMenus()
+    ensureHowl()
   }
 
   $("songInput").addEventListener("change", function (e) {
@@ -1881,11 +1983,9 @@
 
   $("songLabel").addEventListener("contextmenu", function (e) {
     e.preventDefault()
-    if (songAudio) {
-      stopSong()
-      URL.revokeObjectURL(songAudio.src)
-      songAudio = null
-    }
+    stopSong()
+    if (songHowl) { try { songHowl.unload() } catch (err) { /* ignore */ } songHowl = null }
+    if (songFileURL) { URL.revokeObjectURL(songFileURL); songFileURL = "" }
     $("songLabel").firstChild.textContent = "加载音乐 "
     state.loadedSongName = ""
     state.library.audio = []
@@ -2772,10 +2872,11 @@
 
   function tick() {
     if (!state.playing) return
-    const elapsed = (performance.now() - state.wallStartPerf) / 1000 * state.speed
+    const elapsedReal = (performance.now() - state.wallStartPerf) / 1000
+    const elapsed = Math.max(0, elapsedReal - audioDelaySec) * state.speed
     const curSec = state.playFromSec + elapsed
     state.curSec = curSec
-    if (songAudio && !songKicked) startSong(curSec)
+    if (!songKicked) startSong(curSec)
     // 停止时机：谱面结束与音乐结束中更晚的那个（谱短于音乐时，谱尾自动补空白拍直到音乐放完）
     const endSec = chartEndSec()
     if (curSec >= endSec) {
@@ -2798,6 +2899,19 @@
     state.wallStartPerf = performance.now()
     state.playing = true
     startSong(state.playFromSec)
+    if (window.Howler && Howler.ctx && Howler.ctx.state === "suspended") {
+      Howler.ctx.resume().catch(function () { })
+    }
+    audioDelaySec = 0
+    if (window.Howler && Howler.ctx) {
+      const autoMs = -((Howler.ctx.baseLatency || 0) + (Howler.ctx.outputLatency || 0)) * 1000
+      if (audioOffsetMs === null) {
+        audioOffsetMs = Math.round(autoMs)
+        if ($("audioOffsetInput")) $("audioOffsetInput").value = String(audioOffsetMs)
+      }
+      audioDelaySec = audioOffsetMs / 1000
+      console.log("[audioEngine] delay auto=" + autoMs.toFixed(1) + "ms, offset=" + audioOffsetMs + "ms, effective=" + (audioDelaySec * 1000).toFixed(1) + "ms")
+    }
     $("playBtn").disabled = true
     $("pauseBtn").disabled = false
     tick()
@@ -2807,7 +2921,8 @@
     if (!state.playing) return
     state.playing = false
     stopSong()
-    const elapsed = (performance.now() - state.wallStartPerf) / 1000 * state.speed
+    const elapsedReal = (performance.now() - state.wallStartPerf) / 1000
+    const elapsed = Math.max(0, elapsedReal - audioDelaySec) * state.speed
     state.curSec = state.playFromSec + elapsed // 记录暂停位置
     cancelAnimationFrame(state.rafId)
     $("playBtn").disabled = false
@@ -2816,6 +2931,7 @@
 
   function reset() {
     state.playing = false
+    audioDelaySec = 0
     stopSong()
     cancelAnimationFrame(state.rafId)
     state.curSec = -leadInSec()
@@ -3438,9 +3554,12 @@
     const crfAllowed = typeof supportsExportCrf === "function" && supportsExportCrf(bg, fmt)
     $("optCrf").disabled = !crfAllowed
     $("crfHint").textContent = crfAllowed
-      ? ($("optCrf").value === "auto" ? "自动使用快速导出；选择 CRF 可控制质量，数值越小画质越高、文件通常越大。" : "CRF " + $("optCrf").value + "：使用质量编码，耗时与内存占用会增加。")
+      ? ($("optCrf").value === "auto" ? "自动使用快速导出；选择 CRF 可控制质量，数值越小画质越高、文件通常越大。" : "CRF " + $("optCrf").value + "：使用质量编码，耗时与内存占用会增加。" + (bg === "transparent" ? "透明背景会铺黑底，背景不透明度 / BPM 面板透明不生效。" : ""))
       : "CRF 仅用于 H.264 视频；PNG、透明 MOV/AVI 和 MPEG4 AVI 不使用 CRF。"
+    // CRF 输出 yuv420p：透明背景铺黑底，不透明度 / 面板透明不生效
     if (crfAllowed && $("optCrf").value !== "auto") {
+      $("optOpacity").disabled = true
+      $("optPanel").disabled = true
       fmtHint = "直接按 CRF " + $("optCrf").value + " 导出 " + (fmt === "source" ? "MP4" : fmt.toUpperCase()) + (srcHasAlpha ? "，透明区域填充黑底" : "")
       $("fmtHint").textContent = fmtHint
       $("fmtHint").style.color = ""
@@ -3516,15 +3635,17 @@
     const now = performance.now()
     if (state.playing) {
       // 先算出当前实际播放到的秒数，再无缝切换到新速度
-      const elapsed = (now - state.wallStartPerf) / 1000 * state.speed
+      const elapsedReal = (now - state.wallStartPerf) / 1000
+      const elapsed = Math.max(0, elapsedReal - audioDelaySec) * state.speed
       state.curSec = state.playFromSec + elapsed
       state.speed = newSpeed
       state.playFromSec = state.curSec
       state.wallStartPerf = now
+      audioDelaySec = 0
     } else {
       state.speed = newSpeed
     }
-    if (songAudio) songAudio.playbackRate = newSpeed
+    if (songHowl) songHowl.rate(newSpeed)
   })
 
   /* 拖动时间轴定位播放头：时间/拍/BPM/音符显隐实时同步，
