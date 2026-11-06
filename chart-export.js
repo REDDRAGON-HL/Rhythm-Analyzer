@@ -39,6 +39,7 @@ let exportPanelT = false  // BPM 面板透明
 let exportBgAlpha = 0  // 不透明度
 // BPM 动画状态
 let exportLastShownBpm = null
+let exportLastShownMeter = null // 上次显示的拍号
 let exportBpmFlashStartSec = -1 // 最近一次 BPM 切换对应的导出视频秒数；-1 表示无动画中
 
 // 填充色
@@ -65,6 +66,33 @@ const EXPORT_RESOURCE_BASE = new URL(".", document.currentScript.src)
 let exportCancelFlag = false
 let exportPendingAcks = 0
 let exportProgressCurrent = 0
+
+// 后台标签页里 setTimeout 会被钳到 1s：让出主线程与背压都不能依赖它
+const exportYieldQueue = []
+const exportYieldChannel = (typeof MessageChannel === "function") ? new MessageChannel() : null
+if (exportYieldChannel) {
+  exportYieldChannel.port1.onmessage = function () {
+    const r = exportYieldQueue.shift()
+    if (r) r()
+  }
+}
+function exportYield() {
+  return new Promise(function (resolve) {
+    if (!exportYieldChannel) { setTimeout(resolve, 0); return }
+    exportYieldQueue.push(resolve)
+    exportYieldChannel.port2.postMessage(0)
+  })
+}
+let exportAckWaiters = []
+function notifyAckWaiters() {
+  if (!(exportWorkerError || exportCancelFlag || exportPendingAcks <= 4)) return
+  const list = exportAckWaiters
+  exportAckWaiters = []
+  for (const w of list) {
+    if (exportWorkerError) w.reject(exportWorkerError)
+    else w.resolve()
+  }
+}
 
 function setExportProgress(percent, message) {
   const panel = $("exportProgressPanel")
@@ -108,6 +136,7 @@ function finishExportProgress(status, message) {
 function cancelExport() {
   if (!state.exporting) return
   exportCancelFlag = true
+  notifyAckWaiters()
   setExportProgress(null, "正在取消，请稍候…")
 }
 
@@ -180,6 +209,7 @@ function attachExportWorker(onError) {
     const d = e.data
     if (d.type == "ack") {
       exportPendingAcks = Math.max(0, exportPendingAcks - 1)
+      notifyAckWaiters()
     } else if (d.type == "warn") {
       console.warn("导出:", d.message)
     } else if (d.type == "error") {
@@ -187,6 +217,7 @@ function attachExportWorker(onError) {
       exportWorkerError = err
       onError(err)
       rejectExportWaiters(err)
+      notifyAckWaiters()
     } else if (exportWaiters[d.type] && exportWaiters[d.type].length) {
       exportWaiters[d.type].shift().resolve(d)
     }
@@ -196,17 +227,21 @@ function attachExportWorker(onError) {
     exportWorkerError = err
     onError(err)
     rejectExportWaiters(err)
+    notifyAckWaiters()
   }
 }
-// 背压，当在途消息太多时等worker消化
+// 背压：worker 回 ack 时直接唤醒等待者
 function awaitExportAcks() {
   return new Promise(function (resolve, reject) {
-    const check = () => {
-      if (exportWorkerError) return reject(exportWorkerError)
-      if (exportCancelFlag || exportPendingAcks <= 4) return resolve()
-      setTimeout(check, 4)
-    }
-    check()
+    if (exportWorkerError) return reject(exportWorkerError)
+    if (exportCancelFlag || exportPendingAcks <= 4) return resolve()
+    exportAckWaiters.push({ resolve, reject })
+    setTimeout(function () {
+      const i = exportAckWaiters.findIndex(w => w.resolve === resolve)
+      if (i >= 0) exportAckWaiters.splice(i, 1)
+      if (exportWorkerError) reject(exportWorkerError)
+      else resolve()
+    }, 30000)
   })
 }
 
@@ -389,12 +424,12 @@ async function exportPngSequence(chart, outputDur) {
     files.push({ name: "frame_" + String(k).padStart(5, "0") + ".png", data: new Uint8Array(await blob.arrayBuffer()) })
     if (k % 10 == 0) {
       setExportProgress(5 + (k + 1) / totalFrames * 80, "渲染 PNG 帧 " + (k + 1) + "/" + totalFrames)
-      await new Promise(r => setTimeout(r, 0))
+      await exportYield()
     }
   }
   if (exportCancelFlag) return
   setExportProgress(88, "合成 PNG 序列音轨…")
-  await new Promise(r => setTimeout(r, 0))
+  await exportYield()
   const mixed = await mixExportAudio(outputDur)
   if (exportCancelFlag) return
   if (mixed) files.push({ name: "audio.wav", data: audioBufferToWav(mixed) })
@@ -406,7 +441,7 @@ async function exportPngSequence(chart, outputDur) {
     )
   })
   setExportProgress(95, "打包 PNG 序列 ZIP…")
-  await new Promise(r => setTimeout(r, 0))
+  await exportYield()
   if (exportCancelFlag) return
   const zip = makeZip(files)
   const a = document.createElement("a")
@@ -468,7 +503,7 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
   const blobURL = (u, type) => fetchEngineBlobURL(u, type, "加载 " + videoLabel + " 导出引擎")
 
   setExportProgress(5, "加载 " + videoLabel + " 导出引擎…")
-  await new Promise(r => setTimeout(r, 0))
+  await exportYield()
 
   // 核心资源url
   const coreURL = await blobURL(new URL("./lib/ffmpeg/core/ffmpeg-core.esm.js", location.href).href, "text/javascript")
@@ -553,14 +588,14 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
         if (idx % 5 == 0) {
           const prog = Math.min(75, Math.round((idx + 1) / totalFrames * 75))
           setExportProgress(5 + (idx + 1) / totalFrames * 70, "渲染 " + videoLabel + " 帧 " + (idx + 1) + "/" + totalFrames)
-          await new Promise(r => setTimeout(r, 0))
+          await exportYield()
         }
       }
 
       if (exportCancelFlag) return
 
       setExportProgress(80, "写入音频…")
-      await new Promise(r => setTimeout(r, 0))
+      await exportYield()
 
       const hasAudio = !!mixed
       if (hasAudio) {
@@ -572,7 +607,7 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
 
       // 一次 exec
       setExportProgress(null, "编码 " + videoLabel + "…")
-      await new Promise(r => setTimeout(r, 0))
+      await exportYield()
 
       const onePassArgs = []
       onePassArgs.push("-f", "image2")
@@ -622,7 +657,7 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
       if (hasAudio) await deleteFile(inst, "audio.wav")
 
       setExportProgress(96, "读取 " + videoLabel + " 文件…")
-      await new Promise(r => setTimeout(r, 0))
+      await exportYield()
       const r = await inst.readFile(outName)
       if (!(r && r.byteLength > 0)) throw new Error("编码产物为空（" + videoLabel + " 一次编码失败）")
       finalU8 = new Uint8Array(r)
@@ -636,7 +671,7 @@ async function exportFfmpegVideo(chart, outputDur, mixed) {
 
     // 按需格式转换
     setExportProgress(98, "准备下载文件…")
-    await new Promise(r => setTimeout(r, 0))
+    await exportYield()
     if (!finalU8 || finalU8.length == 0) throw new Error("最终产物为空")
     let blob = new Blob([finalU8], { type: container === "mp4" ? "video/mp4" : container === "mkv" ? "video/x-matroska" : "video/quicktime" })
     finalU8 = null
@@ -693,7 +728,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
   }
 
   setExportProgress(null, "加载格式转换引擎…")
-  await new Promise(r => setTimeout(r, 0))
+  await exportYield()
 
   const coreURL = await blobURL(new URL("./lib/ffmpeg/core/ffmpeg-core.esm.js", location.href).href, "text/javascript")
   const wasmURL = await blobURL(new URL("./lib/ffmpeg/core/ffmpeg-core.wasm", location.href).href, "application/wasm")
@@ -819,7 +854,7 @@ async function postProcessConvert(srcBlob, targetFmt, srcHasAlpha) {
     }
 
     setExportProgress(null, "转换为 " + targetFmt.toUpperCase() + "…")
-    await new Promise(r => setTimeout(r, 0))
+    await exportYield()
     await runExecLocal(args, "→" + targetFmt)
     if (exportCancelFlag) return srcBlob
 
@@ -937,8 +972,8 @@ function drawExportFrame(sec) {
     if (barBeat < bMin - 0.01) continue
     const inLead = barBeat - gridOff < -1e-9
     const x = Math.round(xOf(barBeat))
-    const barNo = i - leadBarCount
-    ctx.fillStyle = barNo % 2 == 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
+    const barNo = i - leadBarCount + 1
+    ctx.fillStyle = barNo % 2 == 1 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.3)"
     ctx.fillRect(x, y0 + 32, 1, 76)
     if (inLead) continue
     ctx.fillStyle = "rgba(255,255,255,0.75)"
@@ -956,8 +991,11 @@ function drawExportFrame(sec) {
     const tag = String(Math.round(s.bpm))
     ctx.font = "800 11px " + EXPORT_FONT()
     const tw = ctx.measureText(tag).width + 12
-    ctx.fillStyle = "rgba(0,0,0,0.6)"
-    ctx.fillRect(x - tw / 2, y0 + 125, tw, 17)
+    // 透明导出不画黑色底牌，只留青色数字
+    if (exportBg === "black") {
+      ctx.fillStyle = "rgba(0,0,0,0.6)"
+      ctx.fillRect(x - tw / 2, y0 + 125, tw, 17)
+    }
     ctx.fillStyle = "#4de0ff"
     ctx.fillText(tag, x, y0 + 134)
   })
@@ -984,12 +1022,14 @@ function drawExportFrame(sec) {
       ctx.translate(x, y)
       ctx.rotate(Math.PI / 4)
       ctx.fillRect(-rOut, -rOut, rOut * 2, rOut * 2)
+      if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
       ctx.strokeRect(-rStroke, -rStroke, rStroke * 2, rStroke * 2)
       ctx.restore()
     } else {
       ctx.beginPath()
       ctx.arc(x, y, rOut, 0, Math.PI * 2)
       ctx.fill()
+      if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
       ctx.beginPath()
       ctx.arc(x, y, rStroke, 0, Math.PI * 2)
       ctx.stroke()
@@ -1016,8 +1056,13 @@ function drawExportFrame(sec) {
   // BPM 面板和切换动画
   const curBpm = bpmAt(beat)
   const roundedBpm = Math.round(curBpm * 100) / 100
-  if (roundedBpm !== exportLastShownBpm) {
-    exportLastShownBpm = roundedBpm
+  const curMeter = (typeof meterAtBeat === "function") ? meterAtBeat(beat) : null
+  const meterKey = curMeter ? (curMeter.num + "/" + curMeter.den) : null
+  const bpmChanged = roundedBpm !== exportLastShownBpm
+  const meterChanged = exportLastShownMeter !== null && meterKey !== null && meterKey !== exportLastShownMeter
+  exportLastShownBpm = roundedBpm
+  if (meterKey !== null) exportLastShownMeter = meterKey
+  if (bpmChanged || meterChanged) {
     if (state.bpmAnim) exportBpmFlashStartSec = sec
   }
   // rawP ∈ [0,1]：0 = 峰值当帧，1 = 动画结束
@@ -1153,6 +1198,7 @@ async function startExport(cfg) {
   exportCancelFlag = false
   // 预置为谱面首个 BPM：置 null 会让首帧被判成"切换"，导出视频开头多出一次动效
   exportLastShownBpm = Math.round(state.chart.bpmFirst * 100) / 100
+  exportLastShownMeter = null
   exportBpmFlashStartSec = -1
   $("playBtn").disabled = true
   $("pauseBtn").disabled = true
@@ -1164,13 +1210,14 @@ async function startExport(cfg) {
   const chart = state.chart
   const speed = state.speed
   const endSec = (typeof chartEndSec === "function") ? chartEndSec() : chart.playEndSeconds
+  const leadOut = ((typeof leadInSec === "function") ? leadInSec() : 0) / speed
   const outputDur = Math.max(chart.playEndSeconds, endSec) / speed
-  const totalFrames = Math.max(1, Math.ceil(outputDur * EXPORT_FPS))
+  const totalFrames = Math.max(1, Math.ceil((outputDur + leadOut) * EXPORT_FPS))
   let failed = false
 
   try {
     // 先让浏览器把进度浮层画出来，再等字体就绪
-    await new Promise(function (r) { setTimeout(r, 0) })
+    await exportYield()
     try { await document.fonts.ready } catch (e) { }
     if (exportCancelFlag) return
 
@@ -1226,7 +1273,7 @@ async function startExport(cfg) {
     const KEY_INT = 120 // 每 2 秒一个关键帧
     for (let k = 0; k < totalFrames; k++) {
       if (exportCancelFlag || fatal) break
-      drawExportFrame((k / EXPORT_FPS) * speed)
+      drawExportFrame((k / EXPORT_FPS) * speed - leadOut * speed)
       const frame = new VideoFrame(exportCanvas, {
         timestamp: Math.round(k * 1e6 / EXPORT_FPS),
         duration: Math.round(1e6 / EXPORT_FPS)
@@ -1240,7 +1287,7 @@ async function startExport(cfg) {
       // 定期让出主线程更新进度
       if (k % 30 == 0) {
         setExportProgress(5 + (k + 1) / totalFrames * 85, "渲染视频帧 " + (k + 1) + "/" + totalFrames)
-        await new Promise((r) => setTimeout(r, 0))
+        await exportYield()
       }
     }
     failFast()

@@ -659,6 +659,7 @@ function parseChart(raw, opts) {
     bgmOffsetSec,
     musicDelayedEntry: !!musicDelayedEntry,
     bpmFirst: time && time[0] ? time[0].bpm : 0,
-    rawTapCount
+    rawTapCount,
+    taps: sorted
   }
 }

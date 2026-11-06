@@ -1491,6 +1491,7 @@
       <button id="noteAddBtn">添加 note</button>
       <button id="noteUseSelectedBtn">使用选中位置</button>
       <button id="noteUsePlayheadBtn">使用播放头位置</button>
+      <button id="noteExportBtn">导出谱面</button>
     </div>
     <details class="meter-json-import" id="noteListEditor">
       <summary>note 列表（<span id="noteListCount">0</span>）</summary>
@@ -1709,6 +1710,7 @@
 <script src="rizline.js"></script>
 <script src="infalsus.js"></script>
 <script src="rotaeno.js"></script>
+<script src="rhythm-json.js"></script>
 <script src="chart-export.js"></script>
 <script src="lib/howler.min.js"></script>
 <script>
@@ -1725,6 +1727,7 @@
     rafId: null,
     playBeat: 0,        // 当前播放头所在的拍号
     lastShownBpm: null, // 上次显示的 BPM
+    lastShownMeter: null, // 上次显示的拍号
     exporting: false,   // 是否正在导出视频
     showChords: false,  // 显示多押开关
     showMeter: false,
@@ -2134,8 +2137,10 @@
   }
   /* 细分线位置：相邻两个拍位之间按 subdivision 均分 */
   function subLineBeats(maxBeat) {
-    const beats = [0].concat(barLineBeats(maxBeat), beatLineBeats(maxBeat), [maxBeat + (state.beatOffset || 0)])
-      .filter(function (b) { return b >= -1e-9 && b <= maxBeat + (state.beatOffset || 0) + 1e-9 })
+    const off = state.beatOffset || 0
+    const top = maxBeat + off
+    const beats = barLineBeats(maxBeat).concat(beatLineBeats(maxBeat), [top])
+      .filter(function (b) { return b <= top + 1e-9 })
       .sort(function (a, b) { return a - b })
     const out = []
     const sub = Math.max(1, state.subdivision)
@@ -2474,7 +2479,7 @@
   function syncNoteEditor() {
     const hasChart = !!state.chart
     const disabled = !hasChart || state.exporting
-    for (const id of ["noteAddInput", "noteAddBtn", "noteUsePlayheadBtn"]) $(id).disabled = disabled
+    for (const id of ["noteAddInput", "noteAddBtn", "noteUsePlayheadBtn", "noteExportBtn"]) $(id).disabled = disabled
     syncNoteAddButtons()
     let n = 0
     if (hasChart) {
@@ -2591,6 +2596,34 @@
     $("noteStatus").textContent = "已填入选中位置：第 " + formatMeterBeat(state.selectedMeterBeat) + " 拍。"
     $("noteAddInput").focus()
   })
+  function exportEditedChart() {
+    if (!state.chart || state.exporting) return
+    const chart = state.chart
+    const taps = (chart.taps || []).map(function (t) {
+      return { beatVal: Math.round(t.beatVal * 1e6) / 1e6, noteType: t.noteType || 0, column: t.column }
+    })
+    const data = {
+      format: "rhythm-analyzer",
+      version: 1,
+      source: state.loadedChartName || "",
+      time: chart.bpmSegments.map(function (s) { return { beatVal: s.startBeat, bpm: s.bpm } }),
+      taps: taps,
+      meters: [{ beat: 0, num: state.beatsPerBar, den: state.beatUnit }].concat(state.timeSigs || []),
+      bgmOffsetSec: chart.bgmOffsetSec || 0,
+      musicDelayedEntry: !!chart.musicDelayedEntry
+    }
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" })
+    const base = ($("fileLabel").textContent || "").trim().replace(/[\\/:*?"<>|]/g, "_").slice(0, 40) || "chart"
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = base + "-edited.json"
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove() }, 1000)
+    $("noteStatus").textContent = "已导出 " + taps.length + " 个音（" + data.time.length + " 个 BPM 段）。"
+  }
+  $("noteExportBtn").addEventListener("click", exportEditedChart)
+
   $("noteListEditor").addEventListener("toggle", function () {
     if (this.open) buildNoteList()
     else $("noteList").replaceChildren()
@@ -2666,8 +2699,8 @@
       if (barBeat < minBeat - 0.01 || barBeat > maxBeat + 0.01) continue
       const inLead = barBeat - gridOff < -1e-9   // 引导区：照画线，只不写编号
       const x = (barBeat - minBeat) * ppb
-      const barNo = i - leadBarCount
-      const isHeavy = (barNo % 2 == 0)
+      const barNo = i - leadBarCount + 1
+      const isHeavy = (barNo % 2 == 1)
       const line = document.createElement("div")
       line.className = "bar-line" + (isHeavy ? " heavy" : "")
       line.style.left = x + "px"
@@ -2764,6 +2797,7 @@
     syncNoteEditor()
 
     state.lastShownBpm = Math.round(chart.bpmFirst * 100) / 100
+    state.lastShownMeter = null
     $("timeVal").textContent = fmtTime(0) + " / " + fmtTime(chart.totalSeconds)
     $("noteCount").textContent = chart.notes.length == chart.rawTapCount
       ? String(chart.notes.length)
@@ -2836,8 +2870,12 @@
     $("bpmMeter").textContent = meterNow.num + "/" + meterNow.den
 
     const roundedBpm = Math.round(bpmAt(beat) * 100) / 100
-    if (roundedBpm !== state.lastShownBpm) {
-      state.lastShownBpm = roundedBpm
+    const meterKey = meterNow.num + "/" + meterNow.den
+    const bpmChanged = roundedBpm !== state.lastShownBpm
+    const meterChanged = state.lastShownMeter !== null && meterKey !== state.lastShownMeter
+    state.lastShownBpm = roundedBpm
+    state.lastShownMeter = meterKey
+    if (bpmChanged || meterChanged) {
       if (state.bpmAnim) {
         const panel = $("bpmPanel")
         panel.classList.remove("flash")
