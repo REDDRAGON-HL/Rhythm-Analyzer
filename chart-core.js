@@ -186,6 +186,7 @@ const LEGAL_VALUES = [
   { v: 10, label: "10", cls: "quin-10", valueClass: "quin-value", num: "5", group: "quin" },
   { v: 20, label: "20", cls: "quin-20", valueClass: "quin-value", num: "5", group: "quin" },
   { v: 40, label: "20", cls: "quin-20", valueClass: "quin-value", num: "5", group: "quin" },
+  { v: 6.6667, label: "20", cls: "quin-20", valueClass: "quin-value", num: "5", group: "quin" },
   // 七连音
   { v: 7, label: "7", cls: "sept-7", valueClass: "sept-value", num: "7", group: "sept" },
   { v: 14, label: "14", cls: "sept-14", valueClass: "sept-value", num: "7", group: "sept" },
@@ -414,10 +415,14 @@ function applyNoteEdits(taps, edits) {
   const list = edits || []
   const removed = new Set()
   const moved = new Map()
+  const ghostSet = new Map()
+  const ghostValueSet = new Map()
   for (const e of list) {
     if (!e) continue
     if (e.kind === "remove") removed.add(e.uid)
     else if (e.kind === "move") moved.set(e.uid, e.to)
+    else if (e.kind === "ghost") ghostSet.set(e.uid, !!e.ghost)
+    else if (e.kind === "ghostValue") ghostValueSet.set(e.uid, (typeof e.value === "number" && e.value > 0) ? e.value : null)
   }
   const seen = new Map()
   const out = []
@@ -428,19 +433,32 @@ function applyNoteEdits(taps, edits) {
     const uid = "s:" + key + ":" + n
     if (removed.has(uid)) continue
     const isMoved = moved.has(uid)
+    const ghost = ghostSet.has(uid) ? ghostSet.get(uid) : !!t.ghost
+    const gv = ghostValueSet.has(uid) ? ghostValueSet.get(uid)
+      : ((typeof t.ghostValue == "number" && t.ghostValue > 0) ? t.ghostValue : null)
     out.push({
       beatVal: isMoved ? moved.get(uid) : t.beatVal,
       column: t.column,
       noteType: t.noteType,
       uid: uid,
       userSet: isMoved,
+      ghost: ghost,
+      ghostValue: gv,
       chainId: (t.chainId != null ? t.chainId : null),
       chainInner: !!t.chainInner
     })
   }
   for (const e of list) {
     if (e && e.kind === "add") {
-      out.push({ beatVal: e.beatVal, column: 0, noteType: 0, uid: "a:" + e.id, userSet: true })
+      const auid = "a:" + e.id
+      const aGhost = ghostSet.has(auid) ? ghostSet.get(auid) : !!e.ghost
+      const aGv = ghostValueSet.has(auid) ? ghostValueSet.get(auid)
+        : ((typeof e.ghostValue == "number" && e.ghostValue > 0) ? e.ghostValue : null)
+      out.push({
+        beatVal: e.beatVal, column: 0, noteType: 0, uid: auid, userSet: true,
+        ghost: aGhost,
+        ghostValue: aGv
+      })
     }
   }
   return out
@@ -483,7 +501,7 @@ function parseChart(raw, opts) {
   if (!showHoldTail) filteredTaps = filteredTaps.filter(t => t.noteType !== TYPE_HOLD_TAIL)
 
   // 转换拍数并排序，保留 noteType / uid / userSet / chainId / chainInner 供 notes 字段透传
-  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0, uid: t.uid, userSet: !!t.userSet, chainId: (t.chainId != null ? t.chainId : null), chainInner: !!t.chainInner }))
+  const sorted = filteredTaps.map(t => ({ beatVal: t.beatVal, column: t.column, noteType: t.noteType || 0, uid: t.uid, userSet: !!t.userSet, chainId: (t.chainId != null ? t.chainId : null), chainInner: !!t.chainInner, ghost: !!t.ghost, ghostValue: (typeof t.ghostValue == "number" ? t.ghostValue : null) }))
     .sort((a, b) => a.beatVal - b.beatVal)
   let rawTapCount = sorted.length
 
@@ -499,6 +517,12 @@ function parseChart(raw, opts) {
       if (t.noteType == TYPE_DRAG) prev.hasDrag = true
       if (t.noteType == TYPE_HOLD_TAIL) prev.hasHoldTail = true
       if (prev.chainId == null && t.chainId != null) prev.chainId = t.chainId
+      if (t.ghost) {
+        prev.hasGhost = true
+        if (prev.ghostValue == null && t.ghostValue != null) prev.ghostValue = t.ghostValue
+      } else {
+        prev.hasNormal = true
+      }
     } else {
       withBeat.push({
         beatVal: t.beatVal,
@@ -510,7 +534,10 @@ function parseChart(raw, opts) {
         userSet: !!t.userSet,
         hasDrag: (t.noteType == TYPE_DRAG),
         hasHoldTail: (t.noteType == TYPE_HOLD_TAIL),
-        chainId: t.chainId
+        chainId: t.chainId,
+        hasGhost: !!t.ghost,
+        hasNormal: !t.ghost,
+        ghostValue: (typeof t.ghostValue == "number" ? t.ghostValue : null)
       })
     }
   }
@@ -563,40 +590,90 @@ function parseChart(raw, opts) {
 
   const colorGroups = groupByNearestNeighbor(withBeat)
 
+  const ghostStream = withBeat.filter(p => p.hasGhost)
+  const normalStream = withBeat.filter(p => p.hasNormal)
+  const ghostNextMap = new Map()
+  for (let gi = 0; gi < ghostStream.length; gi++) {
+    const g = ghostStream[gi]
+    const nx = ghostStream[gi + 1]
+    ghostNextMap.set(noteEditKey(g.beatVal), nx ? (nx.beatVal - g.beatVal) : null)
+  }
+  const normalNextMap = new Map()
+  for (let ni = 0; ni < normalStream.length; ni++) {
+    const n0 = normalStream[ni]
+    const nx = normalStream[ni + 1]
+    normalNextMap.set(noteEditKey(n0.beatVal), nx ? (nx.beatVal - n0.beatVal) : null)
+  }
+  const ghostColorMap = new Map()
+  if (ghostStream.length) {
+    const adjacent = []
+    const explicitVals = new Map()
+    for (const g of ghostStream) {
+      if (typeof g.ghostValue === "number") explicitVals.set(noteEditKey(g.beatVal), g.ghostValue)
+      else adjacent.push(g)
+    }
+    const groups = adjacent.length ? groupByNearestNeighbor(adjacent) : []
+    for (let ai = 0; ai < adjacent.length; ai++) {
+      ghostColorMap.set(noteEditKey(adjacent[ai].beatVal), groups[ai].groupColor)
+    }
+    for (const [k, v] of explicitVals) {
+      const info = matchValue(v)
+      ghostColorMap.set(k, info.unknown ? Object.assign({}, UNKNOWN_VALUE, { label: info.label }) : info)
+    }
+  }
+  const normalColorMap = new Map()
+  {
+    const groups = normalStream.length ? groupByNearestNeighbor(normalStream) : []
+    for (let ni = 0; ni < normalStream.length; ni++) {
+      normalColorMap.set(noteEditKey(normalStream[ni].beatVal), groups[ni].groupColor)
+    }
+  }
+
   const notes = []
   for (let i = 0; i < withBeat.length; i++) {
     const cur = withBeat[i]
+    const key = noteEditKey(cur.beatVal)
 
     // 实际时值
-    let actualValueInfo
-    if (i == withBeat.length - 1) {
-      // 最后一个音统一归为4分
-      actualValueInfo = { ...LEGAL_VALUES.find(l => l.v == 4) }
-    } else {
-      const delta = withBeat[i + 1].beatVal - cur.beatVal
-      if (delta <= 0) {
-        const prev = (i > 0) ? notes[i - 1].actualValueInfo : LEGAL_VALUES[0]
-        actualValueInfo = { ...prev }
-      } else {
-        actualValueInfo = matchValue(4 / delta)
-      }
+    const ghostGapOwn = ghostNextMap.has(key) ? ghostNextMap.get(key) : null
+    const normalGapOwn = normalNextMap.has(key) ? normalNextMap.get(key) : null
+    let ownGap = cur.hasGhost ? ghostGapOwn : normalGapOwn
+    if (cur.hasGhost && cur.hasNormal) {
+      if (ghostGapOwn != null && normalGapOwn != null) ownGap = Math.min(ghostGapOwn, normalGapOwn)
+      else ownGap = (ghostGapOwn != null) ? ghostGapOwn : normalGapOwn
     }
 
+    const valueOfGap = function (gap, explicitV) {
+      if (typeof explicitV === "number" && explicitV > 0) {
+        const info = matchValue(explicitV)
+        return info.unknown
+          ? Object.assign({}, UNKNOWN_VALUE, { v: explicitV, label: "≈" + (Math.round((4 / explicitV) * 100) / 100) })
+          : info
+      }
+      if (gap == null || gap <= 0) return { ...LEGAL_VALUES.find(l => l.v == 4) }
+      return matchValue(4 / gap)
+    }
+
+    let actualValueInfo = valueOfGap(ownGap, cur.ghostValue)
+
     // 组色
-    const colorInfo = colorGroups[i].groupColor
+    const colorInfo = (cur.hasGhost && !cur.hasNormal)
+      ? (ghostColorMap.get(key) || Object.assign({}, UNKNOWN_VALUE, { label: actualValueInfo.label }))
+      : (normalColorMap.get(key) || colorGroups[i].groupColor)
 
     const second = beatToSecond(cur.beatVal, segs)
 
     // 标签，标准音保留常规时值；非标准节奏显示与下一个音之间的实际间隔分数
     let beatLabel
-    if (i == withBeat.length - 1) {
+    if (cur.ghostValue != null) {
+      beatLabel = actualValueInfo.label
+    } else if (ownGap == null || ownGap <= 0) {
       beatLabel = actualValueInfo.label
     } else {
-      const delta = withBeat[i + 1].beatVal - cur.beatVal
-      beatLabel = (isCanonicalStandardGap(delta, actualValueInfo) || (alignNotes && !actualValueInfo.unknown))
+      beatLabel = (isCanonicalStandardGap(ownGap, actualValueInfo) || (alignNotes && !actualValueInfo.unknown))
         ? actualValueInfo.label
-        : formatBeatGapFraction(delta)
-      if (delta > 1 + 1e-9 && actualValueInfo.v !== null && actualValueInfo.v <= 1) beatLabel = "1"
+        : formatBeatGapFraction(ownGap)
+      if (ownGap > 1 + 1e-9 && actualValueInfo.v !== null && actualValueInfo.v <= 1) beatLabel = "1"
     }
 
     // 时值被对齐改过时附上原本的时值标签
@@ -626,7 +703,27 @@ function parseChart(raw, opts) {
       userSet: !!cur.userSet,
       noteType: cur.noteType,      // 0 普通 / 2 drag
       hasDrag: cur.hasDrag,         // 同拍内是否含 drag
-      hasHoldTail: cur.hasHoldTail // 同拍内是否含 hold 尾
+      hasHoldTail: cur.hasHoldTail, // 同拍内是否含 hold 尾
+      hasGhost: !!cur.hasGhost,     // 含半透明音
+      ghostOnly: !!cur.hasGhost && !cur.hasNormal,
+      ghostValue: (typeof cur.ghostValue === "number") ? cur.ghostValue : null,
+      ghostLayer: (function () {
+        if (!(cur.hasGhost && cur.hasNormal)) return null
+        const gv = valueOfGap(ghostGapOwn, cur.ghostValue)
+        let gl = null
+        if (cur.ghostValue != null) gl = gv.label
+        else if (ghostGapOwn == null || ghostGapOwn <= 0) gl = gv.label
+        else {
+          gl = (isCanonicalStandardGap(ghostGapOwn, gv) || (alignNotes && !gv.unknown))
+            ? gv.label : formatBeatGapFraction(ghostGapOwn)
+          if (ghostGapOwn > 1 + 1e-9 && gv.v !== null && gv.v <= 1) gl = "1"
+        }
+        return {
+          colorInfo: ghostColorMap.get(key) || Object.assign({}, UNKNOWN_VALUE, { label: gv.label }),
+          actualValueInfo: gv,
+          beatLabel: gl
+        }
+      })()
     })
   }
 

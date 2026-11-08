@@ -540,6 +540,12 @@
     outline-offset: 4px;
   }
 
+  .timeline .note.selected-uid .shape {
+    outline: 2px solid #ffd54f;
+    outline-offset: 4px;
+    box-shadow: 0 0 0 2px rgba(255, 213, 79, 0.55), 0 0 12px rgba(255, 213, 79, 0.5);
+  }
+
   .note-editor .note-list {
     max-height: 340px;
     overflow-y: auto;
@@ -557,6 +563,15 @@
 
   .note-editor .note-row.selected .note-beat-input {
     border-color: #ffcc80;
+  }
+
+  .note-editor .note-row.selected-uid {
+    color: #ffd54f;
+    background: rgba(255, 213, 79, 0.10);
+  }
+
+  .note-editor .note-row.selected-uid .note-beat-input {
+    border-color: #ffd54f;
   }
 
   .note-editor .note-row-tag {
@@ -577,6 +592,46 @@
     color: #fbbf24;
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .note.ghost {
+    opacity: 0.45;
+  }
+
+  .note.ghost.selected .shape {
+    opacity: 1;
+  }
+
+  .timeline .note.ghost {
+    z-index: 10;
+  }
+
+  .timeline .note:not(.ghost) {
+    z-index: 11;
+  }
+
+  .timeline .note.ghost-under {
+    pointer-events: none;
+  }
+
+  .note-editor .note-row.ghost-row {
+    border-left-color: rgba(148, 197, 253, 0.55);
+  }
+
+  .note-editor .note-row-ghost {
+    color: #93c5fd;
+    font-size: 12px;
+  }
+
+  .note-editor .note-row-ghost-btn {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+
+  .note-editor .note-ghost-value-input {
+    width: 62px;
+    padding: 3px 6px;
+    font-size: 12px;
   }
 
   .modal .btn-row {
@@ -1719,6 +1774,7 @@
     pixelsPerBeat: 120,
     autoScrollLeft: null, // 自动滚动写入的 scrollLeft：用于区分自动定位与手动拖动
     selectedMeterBeat: null,
+    selectedNoteUid: null,   // 选中的音
     playing: false,
     curSec: 0,          // 当前播放位置
     playFromSec: 0,     // 本次"按下播放"时的起点
@@ -1953,6 +2009,7 @@
     state.chart = null
     state.timeSigs = []
     state.selectedMeterBeat = null
+    state.selectedNoteUid = null
     resetNoteEdits()
     clearMeterJsonInput()
     $("meterStatus").textContent = ""
@@ -2179,6 +2236,7 @@
   function resetMetersForChart(chart) {
     state.timeSigs = []
     state.selectedMeterBeat = null
+    state.selectedNoteUid = null
     clearMeterJsonInput()
     $("meterStatus").textContent = ""
     const auto = applyAdapterMeters(chart && chart.meters)
@@ -2240,10 +2298,11 @@
     const meter = hasChart ? meterAtBeat(state.playBeat) : { num: state.beatsPerBar, den: state.beatUnit }
     $("currentMeter").textContent = meter.num + "/" + meter.den
   }
-  function selectMeterBeat(beat) {
+    function selectMeterBeat(beat, uid) {
     if (!state.chart || state.exporting) return
     pause()
     state.selectedMeterBeat = beat
+    state.selectedNoteUid = (uid == null) ? null : uid
     const meter = meterAtBeat(beat)
     $("meterBeatInput").value = formatMeterBeat(beat)
     $("meterNumeratorInput").value = meter.num
@@ -2254,7 +2313,7 @@
     denominatorInput.value = meter.den
     $("meterEditor").open = true
     $("meterStatus").textContent = "已选择第 " + formatMeterBeat(beat) + " 拍（" + fmtTime(beatToSecond(beat, state.chart.bpmSegments)) + "）"
-    selectNoteBeat(beat)
+    selectNoteBeat(beat, uid)
     locateNoteRow(beat)
   }
   $("meterCurrentBtn").addEventListener("click", function () {
@@ -2374,14 +2433,19 @@
     $("noteUseSelectedBtn").disabled = !state.chart || state.exporting || state.selectedMeterBeat === null
   }
 
-  function selectNoteBeat(beat) {
+    function selectNoteBeat(beat, uid) {
     if (!state.chart) return
     state.selectedMeterBeat = beat
+    state.selectedNoteUid = (uid == null) ? null : uid
     for (const el of $("timeline")._noteEls || []) {
-      el.classList.toggle("selected", Math.abs(Number(el.dataset.beat) - beat) < 1e-6)
+      const sameBeat = Math.abs(Number(el.dataset.beat) - beat) < 1e-6
+      el.classList.toggle("selected", sameBeat)
+      el.classList.toggle("selected-uid", sameBeat && !!uid && el.dataset.uid === uid)
     }
     for (const row of $("noteList").children) {
-      row.classList.toggle("selected", Math.abs(Number(row.dataset.beat) - beat) < 1e-6)
+      const sameBeat = Math.abs(Number(row.dataset.beat) - beat) < 1e-6
+      row.classList.toggle("selected", sameBeat && !uid)
+      row.classList.toggle("selected-uid", !!uid && row.dataset.uid === uid)
     }
     syncNoteAddButtons()
   }
@@ -2418,10 +2482,11 @@
         const uid = uids[k]
         seq++
         const row = document.createElement("div")
-        row.className = "meter-entry note-row" + (uids.length > 1 ? " chord-row" : "")
+        row.className = "meter-entry note-row" + (uids.length > 1 ? " chord-row" : "") + (nt.hasGhost ? " ghost-row" : "")
         row.dataset.beat = String(nt.beatVal)
         row.dataset.uid = uid
         if (sel !== null && Math.abs(nt.beatVal - sel) < 1e-6) row.classList.add("selected")
+        if (state.selectedNoteUid && uid === state.selectedNoteUid) row.classList.add("selected-uid")
 
         const idx = document.createElement("span")
         idx.className = "note-row-index"
@@ -2464,10 +2529,43 @@
           tag.textContent = "新增"
           row.appendChild(tag)
         }
+        const tapOfRow = (state.chart.taps || []).find(x => x.uid === uid)
+        const isGhost = !!(tapOfRow && tapOfRow.ghost)
+        const gv = (tapOfRow && typeof tapOfRow.ghostValue === "number") ? tapOfRow.ghostValue : null
+        if (isGhost) {
+          const gtag = document.createElement("span")
+          gtag.className = "note-row-ghost"
+          gtag.textContent = "半透明"
+          row.appendChild(gtag)
+        }
+        const ghostBtn = document.createElement("button")
+        ghostBtn.className = "note-row-ghost-btn"
+        ghostBtn.textContent = isGhost ? "转回常规" : "转半透明"
+        ghostBtn.disabled = disabled
+        ghostBtn.addEventListener("click", function () {
+          const cur = (state.chart.taps || []).find(x => x.uid === uid)
+          setGhostForUid(uid, !(cur && cur.ghost))
+        })
+        row.appendChild(ghostBtn)
+        if (isGhost) {
+          const gvInput = document.createElement("input")
+          gvInput.type = "text"
+          gvInput.className = "note-beat-input note-ghost-value-input"
+          gvInput.placeholder = "时值"
+          gvInput.value = gv != null ? String(Math.round(gv * 1000) / 1000) : ""
+          gvInput.dataset.oldValue = gvInput.value
+          gvInput.disabled = disabled
+          gvInput.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); this.blur() }
+            if (e.key === "Escape") { this.value = this.dataset.oldValue; this.blur() }
+          })
+          gvInput.addEventListener("blur", function () { commitGhostValue(uid, this) })
+          row.appendChild(gvInput)
+        }
         row.appendChild(remove)
         row.addEventListener("click", function (e) {
           if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return
-          selectMeterBeat(Number(row.dataset.beat))
+          selectMeterBeat(Number(row.dataset.beat), row.dataset.uid)
         })
         frag.appendChild(row)
       }
@@ -2550,6 +2648,66 @@
     rerenderAfterNoteEdit("已删除该 note。")
   }
 
+    // 半透明 note
+    function setGhostForSelectedUid(uid, ghost) {
+      if (!state.chart || state.exporting || !uid) return
+      state.noteEdits = state.noteEdits.filter(function (e) {
+        return !(e.kind === "ghost" && e.uid === uid)
+      })
+      state.noteEdits.push({ kind: "ghost", uid: uid, ghost: !!ghost })
+      const beat = noteBeatByUid(uid)
+      rerenderAfterNoteEdit((ghost ? "已转为半透明" : "已转回常规") + (beat !== null ? "（第 " + formatMeterBeat(beat) + " 拍）" : "") + "。", beat === null ? undefined : beat)
+    }
+
+    function noteBeatByUid(uid) {
+      for (const nt of state.chart.notes) {
+        if ((nt.uids || []).indexOf(uid) >= 0) return nt.beatVal
+      }
+      return null
+    }
+
+    function setGhostForUid(uid, ghost) { setGhostForSelectedUid(uid, ghost) }
+
+    // 行内改半透明时值
+    function commitGhostValue(uid, input) {
+      if (!state.chart || state.exporting || !uid) return
+      const v = parseGhostValue(input.value)
+      if (v === undefined) {
+        input.value = input.dataset.oldValue
+        $("noteStatus").textContent = "无法解析半透明时值"
+        return
+      }
+      state.noteEdits = state.noteEdits.filter(function (e) {
+        return !(e.kind === "ghostValue" && e.uid === uid)
+      })
+      if (v === null) {
+        $("noteStatus").textContent = "已清空该半透明音的显式时值"
+      } else {
+        state.noteEdits.push({ kind: "ghostValue", uid: uid, value: v })
+        $("noteStatus").textContent = "已把该半透明音的时值固定为 v=" + (Math.round(v * 1000) / 1000)
+      }
+      const beat = noteBeatByUid(uid)
+      rerenderAfterNoteEdit(undefined, beat === null ? undefined : beat)
+    }
+
+    function parseGhostValue(text) {
+      const s = String(text || "").trim()
+      if (!s) return null
+      if (/^\d+(\.\d+)?$/.test(s)) {
+        const v = parseFloat(s)
+        return (v > 0 && v <= 4096) ? v : undefined
+      }
+      for (const lv of ctxLegalValues()) {
+        if (lv.label === s) return lv.v
+      }
+      const asGap = parseBeatText(s)
+      if (asGap !== null && asGap > 0) return 4 / asGap
+      return undefined
+    }
+    function ctxLegalValues() {
+      return (typeof LEGAL_VALUES !== "undefined") ? LEGAL_VALUES : []
+    }
+
   function commitNoteMove(uid, input) {
     if (!state.chart || state.exporting || !uid) return
     const oldBeat = Number(input.dataset.oldBeat)
@@ -2600,7 +2758,10 @@
     if (!state.chart || state.exporting) return
     const chart = state.chart
     const taps = (chart.taps || []).map(function (t) {
-      return { beatVal: Math.round(t.beatVal * 1e6) / 1e6, noteType: t.noteType || 0, column: t.column }
+      const o = { beatVal: Math.round(t.beatVal * 1e6) / 1e6, noteType: t.noteType || 0, column: t.column }
+      if (t.ghost) o.ghost = true
+      if (typeof t.ghostValue === "number") o.ghostValue = t.ghostValue
+      return o
     })
     const data = {
       format: "rhythm-analyzer",
@@ -2744,15 +2905,42 @@
       const el = document.createElement("div")
       const shapeCls = nt.actualValueInfo.dotted ? "diamond" : "circle"
       // 多押挂chord类
-      el.className = `note ${shapeCls} ${nt.colorInfo.cls}` + (nt.chordCount >= 2 ? " chord" : "")
+      el.className = `note ${shapeCls} ${nt.colorInfo.cls}` + (nt.chordCount >= 2 ? " chord" : "") + (nt.ghostOnly ? " ghost" : "")
       el.style.left = x + "px"
       el.dataset.beat = nt.beatVal
       el.dataset.chord = nt.chordCount
+      el.dataset.ghost = nt.hasGhost ? "1" : ""
       el.dataset.uid = nt.uid || ""
       el.classList.toggle("selected", state.selectedMeterBeat !== null && Math.abs(nt.beatVal - state.selectedMeterBeat) < 1e-6)
+      el.classList.toggle("selected-uid", !!state.selectedNoteUid && el.dataset.uid === state.selectedNoteUid)
       el.classList.add("meter-selectable")
       el.title = "第 " + formatMeterBeat(nt.beatVal) + " 拍 · 点击选中（拍号节点 / 定位到 note 列表）"
-      el.addEventListener("click", function () { selectMeterBeat(nt.beatVal) })
+      el.addEventListener("click", function () { selectMeterBeat(nt.beatVal, nt.uid) })
+      // 先画下层半透明，时值标签只画一份
+      if (nt.ghostLayer) {
+        const gShapeCls = nt.ghostLayer.actualValueInfo.dotted ? "diamond" : "circle"
+        const gEl = document.createElement("div")
+        gEl.className = `note ghost ${gShapeCls} ${nt.ghostLayer.colorInfo.cls}` + (nt.chordCount >= 2 ? " chord" : "")
+        gEl.style.left = x + "px"
+        gEl.dataset.beat = nt.beatVal
+        gEl.dataset.chord = nt.chordCount
+        gEl.dataset.ghost = "1"
+        gEl.dataset.uid = (nt.uids && nt.uids.length > 1) ? nt.uids[nt.uids.length - 1] : (nt.uid || "")
+        gEl.classList.add("meter-selectable", "ghost-under")
+        const gInner = document.createElement("div")
+        gInner.className = "shape"
+        let gNum = null
+        if (nt.ghostLayer.actualValueInfo.dotted) gNum = "·"
+        else if (nt.ghostLayer.colorInfo.num && !nt.ghostLayer.colorInfo.dotted) gNum = nt.ghostLayer.colorInfo.num
+        if (gNum) {
+          const gSpan = document.createElement("span")
+          gSpan.className = "num"
+          gSpan.textContent = gNum
+          gInner.appendChild(gSpan)
+        }
+        gEl.appendChild(gInner)
+        timeline.appendChild(gEl)
+      }
       const shapeInner = document.createElement("div")
       shapeInner.className = "shape"
       //  附点 只显示 ·，不跟随染色组

@@ -1001,22 +1001,25 @@ function drawExportFrame(sec) {
   })
 
   // note
+  const visibleNotes = []
   for (let i = 0; i < chart.notes.length; i++) {
     const nt = chart.notes[i]
     if (nt.beatVal <= beat) continue
     const x = xOf(nt.beatVal)
     if (x > W + 20) break
     if (x < 150) continue
-    const y = midY
-    const dotted = nt.actualValueInfo.dotted
-    const isChordHi = state.showChords && nt.chordCount >= 2
+    visibleNotes.push({ nt: nt, x: x })
+  }
+  const drawNoteBody = function (info, x, y, isChordHi, alpha) {
+    const dotted = info.actualValueInfo.dotted
     const lw = (isChordHi ? 2.5 : 2) * ns
     const rOut = 15 * ns
     const rStroke = rOut - lw / 2
+    ctx.globalAlpha = alpha
     ctx.lineWidth = lw
     ctx.strokeStyle = isChordHi ? "#fbbf24" : "rgba(255,255,255,0.9)"
     if (isChordHi) { ctx.shadowColor = "rgba(251,191,36,0.65)"; ctx.shadowBlur = 16 * ns }
-    ctx.fillStyle = EXPORT_COLORS[nt.colorInfo.cls] || "#4da6ff"
+    ctx.fillStyle = EXPORT_COLORS[info.colorInfo.cls] || "#4da6ff"
     if (dotted) {
       ctx.save()
       ctx.translate(x, y)
@@ -1037,20 +1040,36 @@ function drawExportFrame(sec) {
     if (isChordHi) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent" }
     let displayNum = null
     if (dotted) displayNum = "·"
-    else if (nt.colorInfo.num && !nt.colorInfo.dotted) displayNum = nt.colorInfo.num
+    else if (info.colorInfo.num && !info.colorInfo.dotted) displayNum = info.colorInfo.num
     if (displayNum) {
       ctx.fillStyle = "#fff"
       ctx.font = (dotted ? "900 " + (16 * ns) + "px " : "800 " + (12 * ns) + "px ") + EXPORT_FONT()
       ctx.fillText(displayNum, x, y + (dotted ? 1.0 : 1.3) * ns)
     }
-    {
-      const vc = (4 / nt.actualValueInfo.v > 1) ? "std-value" : nt.actualValueInfo.valueClass
-      ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
-      ctx.font = "700 " + (state.valueFontSize || 11) + "px " + EXPORT_FONT()
-      ctx.textBaseline = "top"
-      ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, x, y0 + 113)
-      ctx.textBaseline = "middle"
-    }
+    ctx.globalAlpha = 1
+  }
+
+  // 半透明层
+  for (const it of visibleNotes) {
+    const nt = it.nt
+    const isChordHi = state.showChords && nt.chordCount >= 2
+    const info = nt.ghostLayer || (nt.ghostOnly ? nt : null)
+    if (info) drawNoteBody(info, it.x, midY, isChordHi, 0.45)
+  }
+  // 实色层 + 时值标签
+  for (const it of visibleNotes) {
+    const nt = it.nt
+    const isChordHi = state.showChords && nt.chordCount >= 2
+    if (!nt.ghostOnly) drawNoteBody(nt, it.x, midY, isChordHi, 1)
+    const beatCount = 4 / nt.actualValueInfo.v
+    const vc = (beatCount > 1) ? "std-value" : nt.actualValueInfo.valueClass
+    ctx.globalAlpha = nt.ghostOnly ? 0.45 : 1
+    ctx.fillStyle = EXPORT_VALUE_COLORS[vc] || "#93c5fd"
+    ctx.font = "700 " + (state.valueFontSize || 11) + "px " + EXPORT_FONT()
+    ctx.textBaseline = "top"
+    ctx.fillText(nt.beatLabel || nt.actualValueInfo.label, it.x, y0 + 113)
+    ctx.textBaseline = "middle"
+    ctx.globalAlpha = 1
   }
 
   // BPM 面板和切换动画

@@ -33,11 +33,15 @@ registerChartAdapter(
       return [Math.floor(n / D), n - Math.floor(n / D) * D, D]
     }
     const taps = (raw.taps || []).map(function (t) {
-      return {
+      const o = {
         beatVal: (typeof t.beatVal == "number") ? t.beatVal : beatToVal(t.beat || [0, 0, 1]),
         column: t.column,
         noteType: t.noteType || 0
       }
+      // 半透明 note
+      if (t.ghost) o.ghost = true
+      if (typeof t.ghostValue == "number" && t.ghostValue > 0) o.ghostValue = t.ghostValue
+      return o
     })
     const time = (raw.time || []).map(function (t) {
       const v = (typeof t.beatVal == "number") ? t.beatVal : beatToVal(t.beat || [0, 0, 1])
